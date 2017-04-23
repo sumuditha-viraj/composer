@@ -64,6 +64,7 @@ class BallerinaFileEditor extends BallerinaView {
         this._debugger = _.get(args, 'debugger');
         this._file = _.get(args, 'file');
         this._id = _.get(args, 'id', 'Ballerina Composer');
+        this._programPackages = _.get(args, 'programPackages');
 
         if (!this._parseFailed && (_.isNil(this._model) || !(this._model instanceof BallerinaASTRoot))) {
             log.error('Ballerina AST Root is undefined or is of different type.' + this._model);
@@ -400,13 +401,14 @@ class BallerinaFileEditor extends BallerinaView {
         toolPaletteOpts.ballerinaFileEditor = this;
         this.toolPalette = new ToolPalette(toolPaletteOpts);
 
+        this._environment =  new PackageScopedEnvironment();
+        this._environment.addPackages(this._programPackages); 
+        this._package = this._environment.getCurrentPackage();
+
         this._createImportDeclarationPane(canvasContainer);
 
         // init undo manager
         this._undoManager = new UndoManager();
-
-        this._environment =  new PackageScopedEnvironment();
-        this._package = this._environment.getCurrentPackage();
     }
 
     /**
@@ -687,7 +689,16 @@ class BallerinaFileEditor extends BallerinaView {
     generateCurrentPackage() {
         var symbolTableGenVisitor = new SymbolTableGenVisitor(this._environment.getCurrentPackage(), this._model);
         this._model.accept(symbolTableGenVisitor);
-        return symbolTableGenVisitor.getPackage();
+        var currentPackage = symbolTableGenVisitor.getPackage();
+        var packages = this._environment.getPackages();
+        var currentPackageArray = _.filter(packages, (pkg) => {
+            return !_.isEmpty(this._model.children) && (pkg.getName() ===  this._model.children[0].getPackageName());
+        });
+        if(!_.isEmpty(currentPackageArray)){
+            currentPackage = currentPackageArray[0];
+            currentPackage.setName('Current Package');
+        }
+        return currentPackage;
     }
 
     /**
@@ -885,7 +896,7 @@ class BallerinaFileEditor extends BallerinaView {
         };
 
         //add import suggestions
-        var packages = BallerinaEnvironment.getPackages();
+        var packages = self._environment.getPackages();
         var packageNames = _.map(packages, function(p){return p._name;});
 
         importValueText.typeahead({
@@ -916,7 +927,7 @@ class BallerinaFileEditor extends BallerinaView {
                     currentASTRoot.addImport(newImportDeclaration);
 
                     // add import to the tool pallet
-                    var newPackage = BallerinaEnvironment.searchPackage(newImportDeclaration.getPackageName())[0];
+                    var newPackage = self._environment.searchPackage(newImportDeclaration.getPackageName())[0];
                     // Only add to tool palette if the user input exactly matches an existing package.
                     if(!_.isUndefined(newPackage) && (newPackage.getName() === importTestValue)) {
                         self.toolPalette.getItemProvider().addImportToolGroup(newPackage);
