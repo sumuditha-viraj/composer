@@ -37,15 +37,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
+/**
+ * Utility methods for workspace service
+ */
 public class WorkspaceUtils {
 
     /**
-     * Get All Native Packages
+     * Get All Native Packages for a given symbolMap
      * @return {Map} <Package name, package functions and connectors>
      * */
     public static Map<String, ModelPackage> getAllPackages(Map<SymbolName, BLangSymbol> symbolMap) {
         Map<String, ModelPackage> packages = new HashMap<>();
-
         symbolMap.values().stream().forEach(symbol -> {
             if (symbol instanceof NativePackageProxy) {
                 ((NativePackageProxy) symbol).load().getSymbolMap().values().stream().forEach(bLangSymbol -> {

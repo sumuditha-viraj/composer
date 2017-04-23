@@ -35,6 +35,7 @@ import org.ballerinalang.model.BallerinaFile;
 import org.ballerinalang.model.GlobalScope;
 import org.ballerinalang.model.types.BTypes;
 import org.ballerinalang.natives.BuiltInNativeConstructLoader;
+import org.ballerinalang.util.exceptions.BallerinaException;
 import org.ballerinalang.util.parser.BallerinaLexer;
 import org.ballerinalang.util.parser.BallerinaParser;
 import org.ballerinalang.util.parser.antlr4.BLangAntlr4Listener;
@@ -187,17 +188,25 @@ public class BLangFileRestService {
             }
 
             String sourcePath = buf.toString();
-            Map<String, ModelPackage> packages = myFunc(parentDir, Paths.get(sourcePath), pkgPath);
-            Collection<ModelPackage> modelPackages = packages.values();
+            Map<String, ModelPackage> packages = null;
+            try {
+                packages = myFunc(parentDir, Paths.get(sourcePath), pkgPath);
+                Collection<ModelPackage> modelPackages = packages.values();
 
-            Gson gson = new Gson();
-            String json = gson.toJson(modelPackages);
+                Gson gson = new Gson();
+                String json = gson.toJson(modelPackages);
 
-            JsonParser parser = new JsonParser();
-            JsonArray o = parser.parse(json).getAsJsonArray();
-            response.add("packages", o);
+                JsonParser parser = new JsonParser();
+                JsonArray o = parser.parse(json).getAsJsonArray();
+                response.add("packages", o);
+            }
+            // TODO : we shouldn't catch runtime exceptions. Need to validate properly before executing
+            catch (BallerinaException e) {
+                // There might be situations where program directory contains unresolvable/un-parsable .bal files. In
+                // those scenarios we still needs to proceed even without package resolving. Hence ignoring the
+                // exception
+            }
         }
-
         return response.toString();
     }
 
@@ -227,7 +236,7 @@ public class BLangFileRestService {
     }
 
     private static Map<String, ModelPackage> myFunc(java.nio.file.Path programDirPath, java.nio.file.Path sourcePath,
-                                                    String pkgPath) {
+                                                    String pkgPath) throws BallerinaException {
         Map<String, ModelPackage> modelPackageMap = new HashMap();
         programDirPath = BLangPrograms.validateAndResolveProgramDirPath(programDirPath);
 
