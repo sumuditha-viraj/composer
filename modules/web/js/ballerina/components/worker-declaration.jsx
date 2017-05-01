@@ -15,42 +15,34 @@
  * specific language governing permissions and limitations
  * under the License.
  */
- 
-import React from 'react';
-import log from 'log';
 
-// require all react components
+import React from 'react';
+import LifeLine from './lifeline.jsx';
+
+// require possible themes
 function requireAll(requireContext) {
     let components = {};
     requireContext.keys().map((item, index) => {
         var module = requireContext(item);
-        if (module.default) {
+        if(module.default){
             components[module.default.name] = module.default;
         }
     });
     return components;
 }
+var components = requireAll(require.context('./', true, /\.jsx$/));
 
-const components =  requireAll(require.context('./', true, /\.jsx$/));
+class WorkerDeclaration extends React.Component {
 
-function getComponentForNodeArray(nodeArray) {
-    return nodeArray.map((child) => {
-        let compName = child.constructor.name;
-        if (components[compName]) {
-            return React.createElement(components[compName], {
-                model: child,
-                // set the key to prevent warning 
-                //see: https://facebook.github.io/react/docs/lists-and-keys.html#keys
-                key: child.getID()
-            }, null);
-        } else {
-            log.error('Unknown element type :' + child.constructor.name)
-        }
-    });
+    constructor(props) {
+        super(props);
+        this.components = components;
+    }
+
+    render() {
+        const bBox = this.props.model.viewState.bBox;
+        return (<LifeLine title="FunctionWorker" bBox={bBox}/>);
+    }
 }
 
-export {
-  components
-};
-
-export default getComponentForNodeArray;
+export default WorkerDeclaration;

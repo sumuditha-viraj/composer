@@ -37,64 +37,38 @@ class WorkerDeclarationPositionCalcVisitor {
             return child instanceof AST.WorkerDeclaration;
         });
         let workerIndex = _.findIndex(workers, node);
-        let x, y, middleLineStartX, middleLineStartY, middleLineEndX, middleLineEndY, topRectX, topRectY, bottomRectX, bottomRectY;
+        let x, y;
 
         if (workerIndex === 0) {
             /**
-             * This is the default worker
+             * Always the first worker should place after the default worker lifeline. If in a case like fork-join
+             * we keep the first worker right next to the parent statement boundary.
              */
-            if(!node.isDefaultWorker()) {
-                throw 'Invalid Default worker found';
-            } else if (parentViewState.components.statementContainer.w()) {
-                throw 'Statement container width should greater than or equal to life line width';
-            }
-            topRectX = parentViewState.components.statementContainer.x() +
-                (parentViewState.components.statementContainer.w() - bBox.w())/2;
-            topRectY = parentViewState.components.statementContainer.y() - DesignerDefaults.lifeLine.head.height;
-        } else if (workerIndex > 0) {
-            let previousWorker = workers[workerIndex - 1];
-            let previousStatementContainer;
-            /**
-             * This is either the statement container of the previous worker, if it is not the default worker and
-             * otherwise it is the statement container of the parent (Resource, connector action, etc)
-             */
-            if (previousWorker.isDefaultWorker()) {
-                previousStatementContainer = node.getParent().getViewState().components.statementContainer;
+            if (parentViewState.components.defaultWorker) {
+                x = parentViewState.components.statementContainer.getRight() +
+                    DesignerDefaults.lifeLine.gutter.h;
             } else {
-                previousStatementContainer = workers[workerIndex - 1].getViewState().components.statementContainer;
+                x = parentViewState.components.body.getLeft() + DesignerDefaults.lifeLine.gutter.h;
             }
-            topRectX = previousStatementContainer.x() + DesignerDefaults.innerPanel.body.padding.left;
-            topRectY = viewState.components.statementContainer.y() - DesignerDefaults.lifeLine.head.height;
+        } else if (workerIndex > 0) {
+            const previousWorker = workers[workerIndex - 1];
+            const previousStatementContainer = previousWorker.getViewState().components.statementContainer;
+            x = previousStatementContainer.x + DesignerDefaults.innerPanel.body.padding.left;
         } else {
             throw "Invalid index found for Worker Declaration";
         }
+        y = parentViewState.components.body.getTop() + DesignerDefaults.innerPanel.body.padding.top;
 
-        x = topRectX;
-        y = topRectY;
-        bottomRectX = topRectX;
-        bottomRectY = topRectY + DesignerDefaults.lifeLine.head.height + DesignerDefaults.lifeLine.line.height;
-        middleLineStartX = topRectX + viewState.components.topRect.w()/2;
-        middleLineStartY = topRectY + viewState.components.topRect.h();
-        middleLineEndX = middleLineStartX;
-        middleLineEndY = middleLineStartY + DesignerDefaults.lifeLine.line.height;
-
-        bBox.x(x).y(y);
-        (viewState.components.topRect).x(topRectX).y(topRectY);
-        (viewState.components.bottomRect).x(bottomRectX).y(bottomRectY);
-        viewState.components.line.topX = middleLineStartX;
-        viewState.components.line.topY = middleLineStartY;
-        viewState.components.line.bottomX = middleLineEndX;
-        viewState.components.line.bottomY = middleLineEndY;
-
-        log.debug('begin visit WorkerDeclarationPositionCalc');
+        bBox.x = x;
+        bBox.y = y;
+        //viewState.components.statementContainer.x = x;
+        //viewState.components.statementContainer.y = y + DesignerDefaults.lifeLine.head.height;
     }
 
     visitWorkerDeclarationPositionCalc(node) {
-        log.debug('visit WorkerDeclarationPositionCalc');
     }
 
     endVisitWorkerDeclarationPositionCalc(node) {
-        log.debug('end visit WorkerDeclarationPositionCalc');
     }
 }
 

@@ -15,24 +15,29 @@
  * specific language governing permissions and limitations
  * under the License.
  */
- 
+
 import React from 'react';
 import LifeLine from './lifeline.jsx';
 import StatementContainer from './statement-container';
-import StatementView from './statement-decorator';
 import PanelDecorator from './panel-decorator';
+import {getComponentForNodeArray} from './utils';
 
 class FunctionDefinition extends React.Component {
+
+    constructor(props) {
+        super(props);
+    }
 
     render() {
         const bBox = this.props.model.viewState.bBox;
         const name = this.props.model.getFunctionName();
-        return (<PanelDecorator title={name} bBox={bBox}>
-                    <LifeLine title="FunctionWorker" bBox={{x: bBox.x + 50, w: 200 , h: bBox.h - 100, y: bBox.y + 50}}/>
-                    <StatementContainer>
-                      <StatementView bBox={{x:bBox.x + 60, y:bBox.y + 90, w:181.7, h:30}} expression="http:convertToResponse(m)">
-                      </StatementView>
-                    </StatementContainer>
+        const statementContainer = this.props.model.viewState.components.statementContainer;
+        let func_worker_bBox = this.props.model.viewState.components.defaultWorker;
+        var children = getComponentForNodeArray(this.props.model.getChildren());
+        return (<PanelDecorator icon="tool-icons/function" title={name} bBox={bBox}>
+                    <StatementContainer title="StatementContainer" bBox={statementContainer}/>
+                    <LifeLine title="FunctionWorker" bBox={func_worker_bBox}/>
+                    {children}
                 </PanelDecorator>);
     }
 }

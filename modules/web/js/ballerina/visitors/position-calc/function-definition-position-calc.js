@@ -39,6 +39,8 @@ class FunctionDefinitionPositionCalcVisitor {
         let heading = viewSate.components.heading;
         let body = viewSate.components.body;
         let currentFunctionIndex = _.findIndex(panelChildren, node);
+        let statementContainer = viewSate.components.statementContainer;
+        let defaultWorker = viewSate.components.defaultWorker;
         let x, y, headerX, headerY, bodyX, bodyY;
         if (currentFunctionIndex === 0) {
             headerX = DesignerDefaults.panel.wrapper.gutter.h;
@@ -62,6 +64,13 @@ class FunctionDefinitionPositionCalcVisitor {
         heading.y = headerY;
         body.x = bodyX;
         body.y = bodyY;
+
+        statementContainer.x = bodyX + DesignerDefaults.innerPanel.body.padding.left;
+        statementContainer.y = bodyY + DesignerDefaults.innerPanel.body.padding.top +
+            DesignerDefaults.lifeLine.head.height;
+
+        defaultWorker.x = statementContainer.x + (statementContainer.w - defaultWorker.w)/2;
+        defaultWorker.y = statementContainer.y - DesignerDefaults.lifeLine.head.height;
 
         log.debug('begin visit FunctionDefinitionPositionCalc');
     }

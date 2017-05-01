@@ -21,7 +21,7 @@ import CanvasDecorator from './canvas-decorator';
 import FunctionDefinition from './function-definition';
 import PositionCalcVisitor from '../visitors/position-calculator-visitor';
 import DimensionCalcVisitor from '../visitors/dimension-calculator-visitor';
-import getComponentForNodeArray from './components';
+import {getComponentForNodeArray} from './utils';
 
 class Diagram extends React.Component {
 
@@ -63,7 +63,7 @@ class Diagram extends React.Component {
                 case 'ConstantDefinition':
                     break;
                 default:
-                    otherNodes.push(child);
+					otherNodes.push(child);
             }
         });
         others = getComponentForNodeArray(otherNodes);
