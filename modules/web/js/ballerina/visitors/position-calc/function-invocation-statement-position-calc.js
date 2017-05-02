@@ -17,57 +17,25 @@
  */
 
 import log from 'log';
-import _ from 'lodash';
-import ASTFactory from './../../ast/ballerina-ast-factory';
-import * as DesignerDefaults from './../../configs/designer-defaults';
+import * as Utils from './utils';
 
 class FunctionInvocationStatementPositionCalcVisitor {
 
-    canVisitFunctionInvocationStatementPositionCalc(node) {
+    canVisit(node) {
         log.debug('can visit FunctionInvocationStatementPositionCalc');
         return true;
     }
 
-    beginVisitFunctionInvocationStatementPositionCalc(node) {
+    beginVisit(node) {
         log.debug('begin visit FunctionInvocationStatementPositionCalc');
-        let viewState = node.getViewState();
-        let bBox = viewState.bBox;
-        const parent = node.getParent();
-        const parentViewState = parent.getViewState();
-        const parentStatementContainer = parentViewState.components.statementContainer;
-        let parentStatements = parent.filterChildren(function (child) {
-            return ASTFactory.isStatement(child) || ASTFactory.isExpression(child);
-        });
-        const currentIndex = _.findIndex(parentStatements, node);
-        let x, y;
-
-        /**
-         * Here we center the function invocation statement based on the parent's statement container's dimensions
-         * Always the statement container's width should be greater than the statements/expressions
-         */
-        if (parentStatementContainer.w < bBox.w) {
-            throw 'Invalid statement container width found, statement width should be greater than or equal to ' +
-            'statement/ statement width '
-        }
-        x = parentStatementContainer.x + (parentStatementContainer.w - bBox.w)/2;
-        if (currentIndex === 0) {
-            y = parentStatementContainer.y + DesignerDefaults.statement.gutter.v;
-        } else if (currentIndex > 0) {
-            y = parentStatements[currentIndex - 1].getViewState().bBox.getBottom() +
-                DesignerDefaults.statement.gutter.v;
-        } else {
-            throw 'Invalid Index found for function invocation statement';
-        }
-
-        bBox.x = x;
-        bBox.y = y;
+        Utils.getSimpleStatementPosition(node);
     }
 
-    visitFunctionInvocationStatementPositionCalc(node) {
+    visit(node) {
         log.debug('visit FunctionInvocationStatementPositionCalc');
     }
 
-    endVisitFunctionInvocationStatementPositionCalc(node) {
+    endVisit(node) {
         log.debug('end visit FunctionInvocationStatementPositionCalc');
     }
 }

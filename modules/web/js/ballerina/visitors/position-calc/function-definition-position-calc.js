@@ -23,12 +23,12 @@ import * as DesignerDefaults from './../../configs/designer-defaults';
 
 class FunctionDefinitionPositionCalcVisitor {
 
-    canVisitFunctionDefinitionPositionCalc(node) {
+    canVisit(node) {
         log.debug('can visit FunctionDefinitionPositionCalc');
         return true;
     }
 
-    beginVisitFunctionDefinitionPositionCalc(node) {
+    beginVisit(node) {
         let viewSate = node.getViewState();
         let bBox = viewSate.bBox;
         let parent = node.getParent();
@@ -69,17 +69,17 @@ class FunctionDefinitionPositionCalcVisitor {
         statementContainer.y = bodyY + DesignerDefaults.innerPanel.body.padding.top +
             DesignerDefaults.lifeLine.head.height;
 
-        defaultWorker.x = statementContainer.x + (statementContainer.w - defaultWorker.w)/2;
-        defaultWorker.y = statementContainer.y - DesignerDefaults.lifeLine.head.height;
+        //defaultWorker.x = statementContainer.x + (statementContainer.w - defaultWorker.w)/2;
+        //defaultWorker.y = statementContainer.y - DesignerDefaults.lifeLine.head.height;
 
         log.debug('begin visit FunctionDefinitionPositionCalc');
     }
 
-    visitFunctionDefinitionPositionCalc(node) {
+    visit(node) {
         log.debug('visit FunctionDefinitionPositionCalc');
     }
 
-    endVisitFunctionDefinitionPositionCalc(node) {
+    endVisit(node) {
         log.debug('end visit FunctionDefinitionPositionCalc');
     }
 }

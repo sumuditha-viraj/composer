@@ -17,24 +17,27 @@
  */
 
 import log from 'log';
+import * as PositioningUtils from './utils';
 
-class StatementPositionCalcVisitor {
+class ReplyStatementPositionCalcVisitor {
 
-    canVisitStatementPositionCalc(node) {
-        log.debug('can visit StatementPositionCalc');
+    canVisit(node) {
+        log.debug('can visit ReplyStatementPositionCalc');
+        return true;
     }
 
-    beginVisitStatementPositionCalc(node) {
-        log.debug('begin visit StatementPositionCalc');
+    beginVisit(node) {
+        log.debug('visit ReplyStatementPositionCalc');
+        PositioningUtils.getSimpleStatementPosition(node);
     }
 
-    visitStatementPositionCalc(node) {
-        log.debug('visit StatementPositionCalc');
+    visit(node) {
+        log.debug('visit ReplyStatementPositionCalc');
     }
 
-    endVisitStatementPositionCalc(node) {
-        log.debug('end visit StatementPositionCalc');
+    endVisit(node) {
+        log.debug('end visit ReplyStatementPositionCalc');
     }
 }
 
-export default StatementPositionCalcVisitor;
+export default ReplyStatementPositionCalcVisitor;

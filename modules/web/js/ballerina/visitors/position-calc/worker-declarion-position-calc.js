@@ -23,12 +23,12 @@ import * as DesignerDefaults from './../../configs/designer-defaults';
 
 class WorkerDeclarationPositionCalcVisitor {
 
-    canVisitWorkerDeclarationPositionCalc(node) {
+    canVisit(node) {
         log.debug('can visit ServiceDefinitionPositionCalc');
         return true;
     }
 
-    beginVisitWorkerDeclarationPositionCalc(node) {
+    beginVisit(node) {
         let viewState = node.getViewState();
         let bBox = viewState.bBox;
         let parent = node.getParent();
@@ -44,7 +44,7 @@ class WorkerDeclarationPositionCalcVisitor {
              * Always the first worker should place after the default worker lifeline. If in a case like fork-join
              * we keep the first worker right next to the parent statement boundary.
              */
-            if (parentViewState.components.defaultWorker) {
+            if (parentViewState.components.statementContainer) {
                 x = parentViewState.components.statementContainer.getRight() +
                     DesignerDefaults.lifeLine.gutter.h;
             } else {
@@ -53,7 +53,7 @@ class WorkerDeclarationPositionCalcVisitor {
         } else if (workerIndex > 0) {
             const previousWorker = workers[workerIndex - 1];
             const previousStatementContainer = previousWorker.getViewState().components.statementContainer;
-            x = previousStatementContainer.x + DesignerDefaults.innerPanel.body.padding.left;
+            x = previousStatementContainer.getRight() + DesignerDefaults.innerPanel.body.padding.left;
         } else {
             throw "Invalid index found for Worker Declaration";
         }
@@ -61,14 +61,14 @@ class WorkerDeclarationPositionCalcVisitor {
 
         bBox.x = x;
         bBox.y = y;
-        //viewState.components.statementContainer.x = x;
-        //viewState.components.statementContainer.y = y + DesignerDefaults.lifeLine.head.height;
+        viewState.components.statementContainer.x = x;
+        viewState.components.statementContainer.y = y + DesignerDefaults.lifeLine.head.height;
     }
 
-    visitWorkerDeclarationPositionCalc(node) {
+    visit(node) {
     }
 
-    endVisitWorkerDeclarationPositionCalc(node) {
+    endVisit(node) {
     }
 }
 
