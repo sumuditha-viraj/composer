@@ -17,27 +17,27 @@
  */
 
 import log from 'log';
-import * as Utils from './utils';
+import * as PositioningUtils from './utils';
 
-class CatchStatementPositionCalcVisitor {
+class ReturnStatementPositionCalcVisitor {
 
     canVisit(node) {
-        log.debug('can visit CatchStatementPositionCalcVisitor');
+        log.debug('can visit ReplyStatementPositionCalc');
         return true;
     }
 
     beginVisit(node) {
-        log.debug('visit CatchStatementPositionCalcVisitor');
-        Utils.getCompoundStatementChildPosition(node);
+        log.debug('visit ReplyStatementPositionCalc');
+        PositioningUtils.getSimpleStatementPosition(node);
     }
 
     visit(node) {
-        log.debug('visit CatchStatementPositionCalcVisitor');
+        log.debug('visit ReplyStatementPositionCalc');
     }
 
     endVisit(node) {
-        log.debug('end visit CatchStatementPositionCalcVisitor');
+        log.debug('end visit ReplyStatementPositionCalc');
     }
 }
 
-export default CatchStatementPositionCalcVisitor;
+export default ReturnStatementPositionCalcVisitor;
