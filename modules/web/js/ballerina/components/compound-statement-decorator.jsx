@@ -16,27 +16,31 @@
  * under the License.
  */
 import React from "react";
-import StatementDecorator from "./statement-decorator";
 import PropTypes from 'prop-types';
+import {statement} from './../configs/designer-defaults';
+import {lifeLine} from './../configs/designer-defaults';
 
-class ReplyStatement extends React.Component {
+class CompoundStatementDecorator extends React.Component {
 
     render() {
-        let model = this.props.model,
-            bBox = model.viewState.bBox;
-        let expression = model.viewState.expression;
-        return (<StatementDecorator bBox={bBox} expression={expression} model={model} />);
+        const { bBox } = this.props;
+        // we need to draw a drop box above the statement
+        let drop_zone_x = bBox.x + (bBox.w - lifeLine.width)/2;
+        return (<g>
+            <rect x={drop_zone_x} y={bBox.y} width={lifeLine.width} height={statement.gutter.v} className="inner-drop-zone" />
+            {this.props.children}
+        </g>);
     }
 }
 
-ReplyStatement.propTypes = {
+CompoundStatementDecorator.propTypes = {
     bBox: PropTypes.shape({
-        x: PropTypes.number.isRequired,
-        y: PropTypes.number.isRequired,
-        w: PropTypes.number.isRequired,
-        h: PropTypes.number.isRequired,
+        x: React.PropTypes.number.isRequired,
+        y: React.PropTypes.number.isRequired,
+        w: React.PropTypes.number.isRequired,
+        h: React.PropTypes.number.isRequired,
     })
-}
+};
 
 
-export default ReplyStatement;
+export default CompoundStatementDecorator;

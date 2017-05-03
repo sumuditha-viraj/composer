@@ -15,27 +15,31 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-
-import React from 'react'
-import ResourceDefinition from './resource-definition.jsx'
-import StatementView from './statement-decorator.jsx'
-import PanelDecorator from './panel-decorator';
+import React from "react";
+import CompoundStatementDecorator from "./compound-statement-decorator";
+import PropTypes from 'prop-types';
 import {getComponentForNodeArray} from './utils';
 
-class ServiceDefinition extends React.Component {
+class TryCatchStatement extends React.Component {
 
     render() {
-        let model = this.props.model;
-        let bBox = model.viewState.bBox;
-
-        //get the service name
-        let title = model.getServiceName();
-
+        let model = this.props.model,
+            bBox = model.viewState.bBox;
         var children = getComponentForNodeArray(this.props.model.getChildren());
-        return (<PanelDecorator  icon="tool-icons/service" title={title} bBox={bBox} model={model}>
-                {children}
-                </PanelDecorator>);
+        return (<CompoundStatementDecorator bBox={bBox}>
+            {children}
+        </CompoundStatementDecorator>);
     }
 }
 
-export default ServiceDefinition;
+TryCatchStatement.propTypes = {
+    bBox: PropTypes.shape({
+        x: PropTypes.number.isRequired,
+        y: PropTypes.number.isRequired,
+        w: PropTypes.number.isRequired,
+        h: PropTypes.number.isRequired,
+    })
+};
+
+
+export default TryCatchStatement;

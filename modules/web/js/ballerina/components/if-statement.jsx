@@ -16,27 +16,34 @@
  * under the License.
  */
 import React from "react";
-import StatementDecorator from "./statement-decorator";
+import BlockStatementDecorator from "./block-statement-decorator";
 import PropTypes from 'prop-types';
+import {getComponentForNodeArray} from './utils';
 
-class ReplyStatement extends React.Component {
+class IfStatement extends React.Component {
+
+    constructor(props) {
+        super(props);
+    }
 
     render() {
         let model = this.props.model,
             bBox = model.viewState.bBox;
-        let expression = model.viewState.expression;
-        return (<StatementDecorator bBox={bBox} expression={expression} model={model} />);
+        const children = getComponentForNodeArray(this.props.model.getChildren());
+        return (<BlockStatementDecorator bBox={bBox} title={"If"}>
+            {children}
+        </BlockStatementDecorator>);
     }
 }
 
-ReplyStatement.propTypes = {
+IfStatement.propTypes = {
     bBox: PropTypes.shape({
         x: PropTypes.number.isRequired,
         y: PropTypes.number.isRequired,
         w: PropTypes.number.isRequired,
         h: PropTypes.number.isRequired,
     })
-}
+};
 
 
-export default ReplyStatement;
+export default IfStatement;

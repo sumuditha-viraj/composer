@@ -50,7 +50,7 @@ class FunctionDefinitionDimensionCalculatorVisitor {
         var statementHeight = 0;
 
         _.forEach(statementChildren, function(child) {
-            statementHeight += child.viewState.bBox.h + DesignerDefaults.statement.gutter.v;
+            statementHeight += child.viewState.bBox.h;
             if(child.viewState.bBox.w > statementWidth){
                 statementWidth = child.viewState.bBox.w;
             }
@@ -61,31 +61,53 @@ class FunctionDefinitionDimensionCalculatorVisitor {
             statementWidth = DesignerDefaults.statement.width;
         }
 
-        /**
-         * We add an extra gap to the statement container height, in order to maintain the gap between the
-         * last statement's bottom margin and the default worker bottom rect's top margin
-         */
-        statementHeight += DesignerDefaults.statement.gutter.v;
+        /* Lets add an extra gap to the bottom of the lifeline. 
+           This will prevent last statement touching bottom box of the life line.*/
+        statementHeight += DesignerDefaults.lifeLine.gutter.v;
+
+        // If the lifeline is two short we will set a minimum height.
+        if(statementHeight < DesignerDefaults.lifeLine.line.height){
+            statementHeight = DesignerDefaults.lifeLine.line.height;
+        }
 
 
         components['statementContainer'].h = statementHeight;
         components['statementContainer'].w = statementWidth;
-
         components['body'] = new SimpleBBox();
 
         let workerChildren = node.filterChildren(function (child) {
             return BallerinaASTFactory.isWorkerDeclaration(child);
         });
 
+        let connectorChildren = node.filterChildren(function (child) {
+            return BallerinaASTFactory.isConnectorDeclaration(child);
+        });
+
         const highestStatementContainerHeight = util.getHighestStatementContainer(workerChildren);
         const workerLifeLineHeight = components['statementContainer'].h + DesignerDefaults.lifeLine.head.height * 2;
         const highestLifeLineHeight = highestStatementContainerHeight + DesignerDefaults.lifeLine.head.height * 2;
 
+        var workerWidth = 0;
+        _.forEach(workerChildren, function(child) {
+            workerWidth += child.viewState.bBox.w + DesignerDefaults.lifeLine.gutter.h;
+            child.getViewState().bBox.h = _.max([components['statementContainer'].h, highestStatementContainerHeight]) +
+                DesignerDefaults.lifeLine.head.height * 2;
+            child.getViewState().components.statementContainer.h = _.max([components['statementContainer'].h,
+                highestStatementContainerHeight]);
+        });
+
+        _.forEach(connectorChildren, function(child) {
+            child.getViewState().bBox.h = _.max([components['statementContainer'].h, highestStatementContainerHeight]) +
+                DesignerDefaults.lifeLine.head.height * 2;
+            child.getViewState().components.statementContainer.h = _.max([components['statementContainer'].h,
+                highestStatementContainerHeight]);
+        });
+
+        //following is to handle node collapsed for panels.
         if(node.viewState.collapsed) {
             components['body'].h = 0;
         } else {
-            components['body'].h = ((DesignerDefaults.panel.body.height < (_.max([workerLifeLineHeight, highestLifeLineHeight])))?
-                    _.max([workerLifeLineHeight, highestLifeLineHeight]):DesignerDefaults.panel.body.height)
+            components['body'].h = _.max([workerLifeLineHeight, highestLifeLineHeight])
                                    + DesignerDefaults.panel.body.padding.top + DesignerDefaults.panel.body.padding.bottom;
         }
         /**
@@ -95,7 +117,7 @@ class FunctionDefinitionDimensionCalculatorVisitor {
         components['statementContainer'].h = _.max([components['statementContainer'].h, highestStatementContainerHeight]);
 
         components['body'].w = components['statementContainer'].w + DesignerDefaults.panel.body.padding.right +
-            DesignerDefaults.panel.body.padding.left;
+            DesignerDefaults.panel.body.padding.left + workerWidth;
 
         viewState.bBox.h = components['heading'].h + components['body'].h;
         viewState.bBox.w = components['heading'].w + components['body'].w;

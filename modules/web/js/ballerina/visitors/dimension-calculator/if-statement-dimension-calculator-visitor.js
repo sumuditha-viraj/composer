@@ -15,28 +15,28 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from "react";
-import StatementDecorator from "./statement-decorator";
-import PropTypes from 'prop-types';
+import log from 'log';
+import {util} from './../sizing-utils';
 
-class ReplyStatement extends React.Component {
+class IfStatementDimensionCalculatorVisitor {
 
-    render() {
-        let model = this.props.model,
-            bBox = model.viewState.bBox;
-        let expression = model.viewState.expression;
-        return (<StatementDecorator bBox={bBox} expression={expression} model={model} />);
+    canVisit(node) {
+        log.debug('Can Visit IfStatementDimensionCalculatorVisitor');
+        return true;
+    }
+
+    beginVisit(node) {
+        log.debug('Can Visit IfStatementDimensionCalculatorVisitor');
+    }
+
+    visit(node) {
+        log.debug('Visit IfStatementDimensionCalculatorVisitor');
+    }
+
+    endVisit(node) {
+        log.debug('End Visit IfStatementDimensionCalculatorVisitor');
+        util.populateBlockStatement(node);
     }
 }
 
-ReplyStatement.propTypes = {
-    bBox: PropTypes.shape({
-        x: PropTypes.number.isRequired,
-        y: PropTypes.number.isRequired,
-        w: PropTypes.number.isRequired,
-        h: PropTypes.number.isRequired,
-    })
-}
-
-
-export default ReplyStatement;
+export default IfStatementDimensionCalculatorVisitor;

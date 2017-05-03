@@ -15,28 +15,28 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from "react";
-import StatementDecorator from "./statement-decorator";
-import PropTypes from 'prop-types';
+import log from 'log';
+import {util} from './../sizing-utils';
 
-class ReplyStatement extends React.Component {
+class ElseIfStatementDimensionCalculatorVisitor {
 
-    render() {
-        let model = this.props.model,
-            bBox = model.viewState.bBox;
-        let expression = model.viewState.expression;
-        return (<StatementDecorator bBox={bBox} expression={expression} model={model} />);
+    canVisit(node) {
+        log.debug('Can Visit ElseIfStatementDimensionCalculatorVisitor');
+        return true;
+    }
+
+    beginVisit(node) {
+        log.debug('Can Visit ElseIfStatementDimensionCalculatorVisitor');
+    }
+
+    visit(node) {
+        log.debug('Visit ElseIfStatementDimensionCalculatorVisitor');
+    }
+
+    endVisit(node) {
+        log.debug('End Visit ElseIfStatementDimensionCalculatorVisitor');
+        util.populateBlockStatement(node);
     }
 }
 
-ReplyStatement.propTypes = {
-    bBox: PropTypes.shape({
-        x: PropTypes.number.isRequired,
-        y: PropTypes.number.isRequired,
-        w: PropTypes.number.isRequired,
-        h: PropTypes.number.isRequired,
-    })
-}
-
-
-export default ReplyStatement;
+export default ElseIfStatementDimensionCalculatorVisitor;

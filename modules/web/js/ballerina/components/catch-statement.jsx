@@ -15,27 +15,31 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-
-import React from 'react'
-import ResourceDefinition from './resource-definition.jsx'
-import StatementView from './statement-decorator.jsx'
-import PanelDecorator from './panel-decorator';
+import React from "react";
+import BlockStatementDecorator from "./block-statement-decorator";
+import PropTypes from 'prop-types';
 import {getComponentForNodeArray} from './utils';
 
-class ServiceDefinition extends React.Component {
+class CatchStatement extends React.Component {
 
     render() {
-        let model = this.props.model;
-        let bBox = model.viewState.bBox;
-
-        //get the service name
-        let title = model.getServiceName();
-
-        var children = getComponentForNodeArray(this.props.model.getChildren());
-        return (<PanelDecorator  icon="tool-icons/service" title={title} bBox={bBox} model={model}>
-                {children}
-                </PanelDecorator>);
+        let model = this.props.model,
+            bBox = model.viewState.bBox;
+        const children = getComponentForNodeArray(this.props.model.getChildren());
+        return (<BlockStatementDecorator bBox={bBox} title={"Catch"}>
+            {children}
+        </BlockStatementDecorator>);
     }
 }
 
-export default ServiceDefinition;
+CatchStatement.propTypes = {
+    bBox: PropTypes.shape({
+        x: PropTypes.number.isRequired,
+        y: PropTypes.number.isRequired,
+        w: PropTypes.number.isRequired,
+        h: PropTypes.number.isRequired,
+    })
+};
+
+
+export default CatchStatement;
