@@ -51,6 +51,11 @@ import BallerinaEnvFactory from '../ballerina/env/ballerina-env-factory';
             this.parseBackend = new Backend({"url" : this.app.config.services.parser.endpoint});
             this.validateBackend = new Backend({"url" : this.app.config.services.validator.endpoint});
             this.deserializer = BallerinaASTDeserializer;
+            this._file.setLangserverCallbacks({
+                documentDidSaveNotification:  (options) => {
+                    this.app.langseverClientController.documentDidSaveNotification(options)
+                }
+                });
         },
 
         getTitle: function(){
@@ -87,6 +92,17 @@ import BallerinaEnvFactory from '../ballerina/env/ballerina-env-factory';
                 this._file.setContent(updatedContent);
                 this._file.save();
             }
+            // Send document open notification to the language server
+            const docUri = this._file.isPersisted() ? this._file.getPath() : ('/temp/' + this._file.id);
+            let documentOptions = {
+                textDocument: {
+                    documentUri: docUri,
+                    languageId: 'ballerina',
+                    version: 1,
+                    text: this._file.getContent()
+                }
+            };
+            this.app.langseverClientController.documentDidOpenNotification(documentOptions);
             $(this.app.config.tab_controller.tabs.tab.ballerina_editor.design_view.container).scrollTop(0);
         },
 
@@ -94,7 +110,8 @@ import BallerinaEnvFactory from '../ballerina/env/ballerina-env-factory';
             var self = this;
             var ballerinaEditorOptions = _.get(this.options, 'ballerina_editor');
             var backendEndpointsOptions = _.get(this.options, 'application.config.services');
-            var diagramRenderingContext = new DiagramRenderContext();
+            let renderingContextOpts = {application: this.options.application};
+            var diagramRenderingContext = new DiagramRenderContext(renderingContextOpts);
 
 
             var astRoot = this.deserializer.getASTModel(parseResponse);
@@ -145,6 +162,15 @@ import BallerinaEnvFactory from '../ballerina/env/ballerina-env-factory';
             }, this);
 
             this.on('tab-removed', function() {
+                const docUri = this._file.isPersisted() ? this._file.getPath() : ('/temp/' + this._file.id);
+                // Send document closed notification to the language server
+                let documentOptions = {
+                    textDocument: {
+                        documentUri: docUri,
+                        documentId: this._file.id
+                    }
+                };
+                this.app.langseverClientController.documentDidCloseNotification(documentOptions);
                 this.removeAllBreakpoints();
             });
 

@@ -31,6 +31,7 @@ import Debugger from './debugger/module';
 import DebugManager from './debugger/debug-manager';
 import LaunchManager from './launcher/launch-manager';
 import Launcher from './launcher/launcher';
+import LangServerClientController from './langserver/lang-server-client-controller';
 import BallerinaEnvironment from './ballerina/env/environment';
 // importing for side effects only
 import 'jquery-ui/ui/widgets/draggable';
@@ -94,6 +95,12 @@ class Application {
 
         LaunchManager.init(launcherOpts);
 
+        // Setup the language server client controller
+        var langserverOptions = {};
+        _.set(langserverOptions, 'application', this);
+        _.set(_.get('application'), 'config', this.config);
+        this.langseverClientController = new LangServerClientController(langserverOptions);
+
         // init debugger
 
         var debuggerOpts = _.get(this.config, "debugger");
@@ -135,6 +142,9 @@ class Application {
     }
 
     render() {
+        // lets initialize the ballerina environment before we render UI.
+        BallerinaEnvironment.initialize({app: this});  
+
         log.debug("start: rendering menu_bar control");
         this.menuBar.render();
         log.debug("end: rendering menu_bar control");
@@ -162,7 +172,6 @@ class Application {
         if(this.isElectronMode()) {
             this.menuBar.setVisible(false);
         }
-        BallerinaEnvironment.initialize({app: this});
     }
 
     displayInitialView() {
@@ -213,6 +222,10 @@ class Application {
 
     isElectronMode() {
         return this._isElectronMode;
+    }
+
+    getLangserverClientController() {
+        return this.langseverClientController;
     }
 
 }
