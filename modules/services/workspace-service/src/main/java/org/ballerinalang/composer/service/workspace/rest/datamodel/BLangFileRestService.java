@@ -34,7 +34,6 @@ import org.ballerinalang.model.BLangProgram;
 import org.ballerinalang.model.BallerinaFile;
 import org.ballerinalang.model.GlobalScope;
 import org.ballerinalang.model.types.BTypes;
-import org.ballerinalang.natives.BuiltInNativeConstructLoader;
 import org.ballerinalang.util.exceptions.BallerinaException;
 import org.ballerinalang.util.parser.BallerinaLexer;
 import org.ballerinalang.util.parser.BallerinaParser;
@@ -197,9 +196,9 @@ public class BLangFileRestService {
                 JsonParser parser = new JsonParser();
                 JsonArray o = parser.parse(json).getAsJsonArray();
                 response.add("packages", o);
-            }
-            // TODO : we shouldn't catch runtime exceptions. Need to validate properly before executing
-            catch (BallerinaException e) {
+            } catch (BallerinaException e) {
+                // TODO : we shouldn't catch runtime exceptions. Need to validate properly before executing
+
                 // There might be situations where program directory contains unresolvable/un-parsable .bal files. In
                 // those scenarios we still needs to proceed even without package resolving. Hence ignoring the
                 // exception
@@ -249,8 +248,9 @@ public class BLangFileRestService {
                     pkg.toString().length());
             BLangProgram bLangProgramX = new BLangProgramLoader()
                     .loadMain(programDirPath, Paths.get(s));
-            bLangProgramX.getPackages();
-            modelPackageMap.putAll(WorkspaceUtils.getAllPackages(bLangProgramX.getMainPackage().getSymbolMap()));
+            String[] packageNames = {bLangProgramX.getMainPackage().getName()};
+            modelPackageMap.putAll(WorkspaceUtils.getPackage(bLangProgramX, packageNames));
+            //modelPackageMap.putAll(WorkspaceUtils.getAllPackages());
 
         }
         return modelPackageMap;

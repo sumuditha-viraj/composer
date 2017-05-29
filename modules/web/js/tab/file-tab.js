@@ -41,6 +41,9 @@ import BallerinaEnvFactory from '../ballerina/env/ballerina-env-factory';
             if (_.has(options, 'astRoot')) {
                 this._astRoot = _.get(options, 'astRoot');
             }
+            if (_.has(options, 'parseResponse')) {
+                this._parseResponse = _.get(options, 'parseResponse');
+            }
             if(_.has(options, 'programPackages')){
                 this._programPackages = _.get(options, 'programPackages');
             }else{
@@ -73,15 +76,15 @@ import BallerinaEnvFactory from '../ballerina/env/ballerina-env-factory';
                 if(!_.isEmpty(this._file.getContent().trim())){
                     var validateResponse = this.validateBackend.parse({name: this._file.getName(), path: this._file.getPath(), package: this._astRoot, content: this._file.getContent()});
                     if (validateResponse.errors != undefined && !_.isEmpty(validateResponse.errors)) {
-                        this.renderBallerinaEditor(this._astRoot, true);
+                        this.renderBallerinaEditor(this._parseResponse, true);
                         return;
                     }
                 }
                 var parseResponse = this.parseBackend.parse({name: this._file.getName(), path: this._file.getPath(), package: this._astRoot, content: this._file.getContent()});
                 //if no errors display the design.
                 this.renderBallerinaEditor(parseResponse);
-            } else if(!_.isNil(this._astRoot)) {
-                this.renderBallerinaEditor(this._astRoot, false);
+            } else if(!_.isNil(this._parseResponse)) {
+                this.renderBallerinaEditor(this._parseResponse, false);
                 var updatedContent = this.getBallerinaFileEditor().generateSource();
                 this._file.setContent(updatedContent);
                 this._file.setDirty(true);
