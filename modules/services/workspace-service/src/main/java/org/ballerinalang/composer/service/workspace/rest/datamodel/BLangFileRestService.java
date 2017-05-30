@@ -223,18 +223,20 @@ public class BLangFileRestService {
     private static Map<String, ModelPackage> getPackagesInProgramDirectory(java.nio.file.Path programDirPath)
             throws BallerinaException {
         Map<String, ModelPackage> modelPackageMap = new HashMap();
+
         programDirPath = BLangPrograms.validateAndResolveProgramDirPath(programDirPath);
         List<java.nio.file.Path> filePaths = new ArrayList<>();
         searchFilePathsForBalFiles(programDirPath, filePaths, Constants.DIRECTORY_DEPTH);
 
+        // add resolved packages into map
         for (java.nio.file.Path filePath : filePaths) {
             int compare = filePath.compareTo(programDirPath);
             String sourcePath = (String) filePath.toString().subSequence(filePath.toString().length() - compare + 1,
                     filePath.toString().length());
-            BLangProgram bLangProgramX = new BLangProgramLoader()
+            BLangProgram bLangProgram = new BLangProgramLoader()
                     .loadMain(programDirPath, Paths.get(sourcePath));
-            String[] packageNames = {bLangProgramX.getMainPackage().getName()};
-            modelPackageMap.putAll(WorkspaceUtils.getResolvedPackagesMap(bLangProgramX, packageNames));
+            String[] packageNames = {bLangProgram.getMainPackage().getName()};
+            modelPackageMap.putAll(WorkspaceUtils.getResolvedPackagesMap(bLangProgram, packageNames));
         }
         return modelPackageMap;
     }
@@ -247,6 +249,7 @@ public class BLangFileRestService {
      */
     private static void searchFilePathsForBalFiles(java.nio.file.Path programDirPath,
                                                    List<java.nio.file.Path> filePaths, int depth) {
+        // this method is a recursive method. depth is the iteration count and we should return based on the depth count
         if (depth < 0) {
             return;
         }
@@ -266,6 +269,7 @@ public class BLangFileRestService {
                 }
             }
         } catch (IOException e) {
+            // we are ignoring any exception and proceed.
             return;
         }
     }
