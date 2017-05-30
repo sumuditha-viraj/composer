@@ -27,6 +27,7 @@ import org.antlr.v4.runtime.CommonTokenStream;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.ballerinalang.BLangProgramLoader;
+import org.ballerinalang.composer.service.workspace.Constants;
 import org.ballerinalang.composer.service.workspace.model.ModelPackage;
 import org.ballerinalang.composer.service.workspace.util.WorkspaceUtils;
 import org.ballerinalang.model.BLangPackage;
@@ -164,38 +165,45 @@ public class BLangFileRestService {
         BLangJSONModelBuilder jsonModelBuilder = new BLangJSONModelBuilder(response);
         bFile.accept(jsonModelBuilder);
 
-        String[] dirs;
-        String pkgPath = bFile.getPackagePath();
+        // add packages info in the program directory into response.
+        addPackagesInProgramDirectory(bFile, filePath, response);
 
+        return response.toString();
+    }
+
+    /**
+     * Add packages in program directory to given json object
+     *
+     * @param bFile - ballerina file object
+     * @param filePath - file path to parent directory of the .bal file
+     * @param response - jsonObject which the package details should be attached to
+     */
+    private static void addPackagesInProgramDirectory(BallerinaFile bFile, java.nio.file.Path filePath,
+                                                      JsonObject response) {
+        String pkgPath = bFile.getPackagePath();
         // Filter out Default package scenario
         if (!".".equals(pkgPath)) {
-            if (bFile.getPackagePath().contains(".")) {
-                dirs = bFile.getPackagePath().split("\\.");
-            } else {
-                dirs = new String[]{bFile.getPackagePath()};
-            }
-
-
-            StringBuffer buf = new StringBuffer();
-            java.nio.file.Path parentDir = filePath.getParent();
-            for (int i = 0; i < dirs.length; ++i) {
-                buf.append(dirs[i]);
-                buf.append("/");
-                parentDir = parentDir.getParent();
-            }
-
-            String sourcePath = buf.toString();
-            Map<String, ModelPackage> packages = null;
             try {
-                packages = myFunc(parentDir, Paths.get(sourcePath), pkgPath);
+                // find nested directory count using package name
+                int directoryCount = (bFile.getPackagePath().contains(".")) ? bFile.getPackagePath().split("\\.").length
+                        : 1;
+
+                // find program directory
+                java.nio.file.Path parentDir = filePath.getParent();
+                for (int i = 0; i < directoryCount; ++i) {
+                    parentDir = parentDir.getParent();
+                }
+
+                // get packages in program directory
+                Map<String, ModelPackage> packages = getPackagesInProgramDirectory(parentDir);
                 Collection<ModelPackage> modelPackages = packages.values();
 
+                // add package info into response
                 Gson gson = new Gson();
                 String json = gson.toJson(modelPackages);
-
                 JsonParser parser = new JsonParser();
-                JsonArray o = parser.parse(json).getAsJsonArray();
-                response.add("packages", o);
+                JsonArray packagesArray = parser.parse(json).getAsJsonArray();
+                response.add("packages", packagesArray);
             } catch (BallerinaException e) {
                 // TODO : we shouldn't catch runtime exceptions. Need to validate properly before executing
 
@@ -204,58 +212,62 @@ public class BLangFileRestService {
                 // exception
             }
         }
-        return response.toString();
     }
 
-    private static void listFiles(java.nio.file.Path programDirPath, List<java.nio.file.Path> packages, int depth) {
+    /**
+     * Get packages in program directory
+     * @param programDirPath
+     * @return a map contains package details
+     * @throws BallerinaException
+     */
+    private static Map<String, ModelPackage> getPackagesInProgramDirectory(java.nio.file.Path programDirPath)
+            throws BallerinaException {
+        Map<String, ModelPackage> modelPackageMap = new HashMap();
+        programDirPath = BLangPrograms.validateAndResolveProgramDirPath(programDirPath);
+        List<java.nio.file.Path> filePaths = new ArrayList<>();
+        searchFilePathsForBalFiles(programDirPath, filePaths, Constants.DIRECTORY_DEPTH);
+
+        for (java.nio.file.Path filePath : filePaths) {
+            int compare = filePath.compareTo(programDirPath);
+            String sourcePath = (String) filePath.toString().subSequence(filePath.toString().length() - compare + 1,
+                    filePath.toString().length());
+            BLangProgram bLangProgramX = new BLangProgramLoader()
+                    .loadMain(programDirPath, Paths.get(sourcePath));
+            String[] packageNames = {bLangProgramX.getMainPackage().getName()};
+            modelPackageMap.putAll(WorkspaceUtils.getResolvedPackagesMap(bLangProgramX, packageNames));
+        }
+        return modelPackageMap;
+    }
+
+    /**
+     * Recursive method to search for .bal files and add their parent directory paths to the provided List
+     * @param programDirPath - program directory path
+     * @param filePaths - file path list
+     * @param depth - depth of the directory hierarchy which we should search from the program directory
+     */
+    private static void searchFilePathsForBalFiles(java.nio.file.Path programDirPath,
+                                                   List<java.nio.file.Path> filePaths, int depth) {
         if (depth < 0) {
             return;
         }
-        DirectoryStream<java.nio.file.Path> stream = null;
         try {
-            stream = Files.newDirectoryStream(programDirPath);
-        } catch (IOException e) {
-            return;
-        }
-        depth = depth - 1;
-        for (java.nio.file.Path entry : stream) {
-            if (Files.isDirectory(entry)) {
-                listFiles(entry, packages, depth);
-            }
+            DirectoryStream<java.nio.file.Path> stream = Files.newDirectoryStream(programDirPath);
+            depth = depth - 1;
+            for (java.nio.file.Path entry : stream) {
+                if (Files.isDirectory(entry)) {
+                    searchFilePathsForBalFiles(entry, filePaths, depth);
+                }
                 java.nio.file.Path file = entry.getFileName();
                 if (file != null) {
                     String fileName = file.toString();
-                        if (fileName.endsWith(".bal")) {
-                            packages.add(entry.getParent());
-                        }
+                    if (fileName.endsWith(".bal")) {
+                        filePaths.add(entry.getParent());
+                    }
                 }
+            }
+        } catch (IOException e) {
+            return;
         }
-    }
-
-    private static Map<String, ModelPackage> myFunc(java.nio.file.Path programDirPath, java.nio.file.Path sourcePath,
-                                                    String pkgPath) throws BallerinaException {
-        Map<String, ModelPackage> modelPackageMap = new HashMap();
-        programDirPath = BLangPrograms.validateAndResolveProgramDirPath(programDirPath);
-
-        List<java.nio.file.Path> packages = new ArrayList<>();
-        int depth = 50;
-
-        listFiles(programDirPath, packages, depth);
-
-        for (java.nio.file.Path pkg : packages) {
-            int compare = pkg.compareTo(programDirPath);
-            String s = (String) pkg.toString().subSequence(pkg.toString().length() - compare + 1,
-                    pkg.toString().length());
-            BLangProgram bLangProgramX = new BLangProgramLoader()
-                    .loadMain(programDirPath, Paths.get(s));
-            String[] packageNames = {bLangProgramX.getMainPackage().getName()};
-            modelPackageMap.putAll(WorkspaceUtils.getResolvedPackagesMap(bLangProgramX, packageNames));
-            //modelPackageMap.putAll(WorkspaceUtils.getAllPackages());
-
-        }
-        return modelPackageMap;
-
-
     }
 
     /**
