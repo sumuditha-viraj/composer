@@ -59,7 +59,7 @@ class ASTNode extends EventChannel {
             bBox: new SimpleBBox(),
             components: {},
             dimensionsSynced: false
-        }
+        };
     }
 
     /**
@@ -429,7 +429,12 @@ class ASTNode extends EventChannel {
      * @return {boolean} - True if valid, else false.
      */
     static isValidIdentifier(identifier) {
-        return _.isUndefined(identifier) ? false : /^[a-zA-Z$_][a-zA-Z0-9$_]*$/.test(identifier);
+        if(_.isUndefined(identifier)) {
+            return false;
+        } else if(/^[a-zA-Z0-9_]*$/.test(identifier)){
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -463,6 +468,14 @@ class ASTNode extends EventChannel {
 
     setLineNumber(lineNumber, options) {
         this.setAttribute('_lineNumber', parseInt(lineNumber), options);
+    }
+
+    setIsIdentifierLiteral(isLiteral, options) {
+        this.setAttribute('_is_identifier_literal', isLiteral, options);
+    }
+
+    getIdentifierLiteral() {
+        return this.getAttribute('_is_identifier_literal');
     }
 
     getLineNumber() {

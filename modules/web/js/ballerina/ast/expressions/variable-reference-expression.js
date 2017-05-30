@@ -26,7 +26,7 @@ import Expression from './expression';
 class VariableReferenceExpression extends Expression {
     constructor(args) {
         super('VariableReferenceExpression');
-        this._variableName = _.get(args, 'variableName');
+        this.setVariableName(_.get(args, 'variableName'));
         this.setExpression(this.generateExpression(), {doSilently: true});
     }
 
@@ -53,12 +53,12 @@ class VariableReferenceExpression extends Expression {
      */
     initFromJson(jsonNode) {
         var self = this;
-        this.setVariableName(jsonNode.variable_reference_name, {doSilently: true});
         _.each(jsonNode.children, function (childNode) {
             var child = self.getFactory().createFromJson(childNode);
             self.addChild(child);
             child.initFromJson(childNode);
         });
+        this.setVariableName(jsonNode.variable_reference_name, {doSilently: true});
         this.setExpression(this.generateExpression(), {doSilently: true});
     }
 
@@ -74,4 +74,3 @@ class VariableReferenceExpression extends Expression {
 }
 
 export default VariableReferenceExpression;
-

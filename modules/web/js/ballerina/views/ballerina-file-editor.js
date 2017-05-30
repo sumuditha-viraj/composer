@@ -147,12 +147,6 @@ class BallerinaFileEditor extends EventChannel {
                     this.getUndoManager().reset();
                 }
             }
-            // If we have added a new action/function invocation statement the particular import has to be added
-            // to the imports view
-            if (_.isEqual(event.title, 'add import')) {
-                var childModel = event.data.child;
-                self.visit(childModel);
-            }
             _.set(event, 'editor', this);
             _.set(event, 'skipInSourceView', true);
             this.getUndoManager().onUndoableOperation(event);
@@ -201,7 +195,7 @@ class BallerinaFileEditor extends EventChannel {
         var canvasContainer = $('<div></div>');
         canvasContainer.addClass(_.get(viewOptions, 'cssClass.canvas_container'));
         var canvasTopControlsContainer = $('<div></div>')
-            .addClass(_.get(viewOptions, 'cssClass.canvas_top_controls_container'))
+            .addClass(_.get(viewOptions, 'cssClass.canvas_top_controls_container'));
         canvasContainer.append(canvasTopControlsContainer);
 
         this._$designViewContainer.append(canvasContainer);
