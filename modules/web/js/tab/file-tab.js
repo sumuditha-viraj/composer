@@ -49,7 +49,7 @@ FileTab = Tab.extend({
         }else{
             this._programPackages = [];
         }
-            //TODO convert Backend to a singleton
+        //TODO convert Backend to a singleton
         this.app = options.application;
         this.parseBackend = new Backend({"url" : this.app.config.services.parser.endpoint});
         this.validateBackend = new Backend({"url" : this.app.config.services.validator.endpoint});
@@ -71,7 +71,7 @@ FileTab = Tab.extend({
 
     render: function () {
         Tab.prototype.render.call(this);
-            // if file already has content
+        // if file already has content
         if(!_.isNil(this._file.getContent()) && !_.isEmpty(this._file.getContent().trim())){
             if(!_.isEmpty(this._file.getContent().trim())){
                 var validateResponse = this.validateBackend.parse({name: this._file.getName(), path: this._file.getPath(), package: this._astRoot, content: this._file.getContent()});
@@ -81,7 +81,7 @@ FileTab = Tab.extend({
                 }
             }
             var parseResponse = this.parseBackend.parse({name: this._file.getName(), path: this._file.getPath(), package: this._astRoot, content: this._file.getContent()});
-                //if no errors display the design.
+            //if no errors display the design.
             this.renderBallerinaEditor(parseResponse);
         } else if(!_.isNil(this._parseResponse)) {
             this.renderBallerinaEditor(this._parseResponse, false);
@@ -95,7 +95,7 @@ FileTab = Tab.extend({
             this._file.setContent(updatedContent);
             this._file.save();
         }
-            // Send document open notification to the language server
+        // Send document open notification to the language server
         const docUri = this._file.isPersisted() ? this._file.getPath() : ('/temp/' + this._file.id);
         let documentOptions = {
             textDocument: {
@@ -137,7 +137,7 @@ FileTab = Tab.extend({
             programPackages: self._programPackages
         });
 
-            // change tab header class to match look and feel of source view
+        // change tab header class to match look and feel of source view
         fileEditor.on('source-view-activated swagger-view-activated', function(){
             this.getHeader().addClass('inverse');
             this.app.workspaceManager.updateMenuItems();
@@ -166,7 +166,7 @@ FileTab = Tab.extend({
 
         this.on('tab-removed', function() {
             const docUri = this._file.isPersisted() ? this._file.getPath() : ('/temp/' + this._file.id);
-                // Send document closed notification to the language server
+            // Send document closed notification to the language server
             let documentOptions = {
                 textDocument: {
                     documentUri: docUri,
@@ -205,7 +205,7 @@ FileTab = Tab.extend({
             this.app.commandManager.dispatch(id);
         }, this);
 
-            // bind app commands to source editor commands
+        // bind app commands to source editor commands
         this.app.commandManager.getCommands().forEach(function(command){
             fileEditor.getSourceView().bindCommand(command);
         });
@@ -219,9 +219,9 @@ FileTab = Tab.extend({
         }
     },
 
-        /**
-         * Re-render current ballerina file.
-         */
+    /**
+     * Re-render current ballerina file.
+     */
     reRender: function(){
         if(this._fileEditor){
             this._fileEditor.reRender();
@@ -232,10 +232,10 @@ FileTab = Tab.extend({
 
         var ballerinaAstRoot = BallerinaASTFactory.createBallerinaAstRoot();
 
-            //package definition
+        // package definition
         var packageDefinition = BallerinaASTFactory.createPackageDefinition();
         packageDefinition.setPackageName("");
-            //packageDefinition.setPackageName("samples.echo");
+        // packageDefinition.setPackageName("samples.echo");
         ballerinaAstRoot.addChild(packageDefinition);
         ballerinaAstRoot.setPackageDefinition(packageDefinition);
 
