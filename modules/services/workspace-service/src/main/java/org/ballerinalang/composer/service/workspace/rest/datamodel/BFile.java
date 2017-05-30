@@ -29,8 +29,6 @@ public class BFile {
 
     private String filePath;
 
-    private String packageName;
-
     public String getContent() {
         return content;
     }
@@ -53,13 +51,5 @@ public class BFile {
 
     public void setFilePath(String filePath) {
         this.filePath = filePath;
-    }
-
-    public String getPackageName() {
-        return packageName;
-    }
-
-    public void setPackageName(String packageName) {
-        this.packageName = packageName;
     }
 }
