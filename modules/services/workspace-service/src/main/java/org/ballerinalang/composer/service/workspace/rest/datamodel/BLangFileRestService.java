@@ -249,7 +249,7 @@ public class BLangFileRestService {
             BLangProgram bLangProgramX = new BLangProgramLoader()
                     .loadMain(programDirPath, Paths.get(s));
             String[] packageNames = {bLangProgramX.getMainPackage().getName()};
-            modelPackageMap.putAll(WorkspaceUtils.getPackage(bLangProgramX, packageNames));
+            modelPackageMap.putAll(WorkspaceUtils.getResolvedPackagesMap(bLangProgramX, packageNames));
             //modelPackageMap.putAll(WorkspaceUtils.getAllPackages());
 
         }

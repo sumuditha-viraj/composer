@@ -57,53 +57,34 @@ public class WorkspaceUtils {
     /**
      * Get All Native Packages
      * @return {Map} <Package name, package functions and connectors>
-     * */
+     */
     public static Map<String, ModelPackage> getAllPackages() {
-        final Map<String, ModelPackage> packages = new HashMap<>();
         // Getting full list of builtin package names
-        String[] packagesArray =  BLangPackages.getBuiltinPackageNames();
+        String[] packagesArray = BLangPackages.getBuiltinPackageNames();
+
         // Load all natives to globalscope
         GlobalScope globalScope = GlobalScope.getInstance();
         NativeScope nativeScope = NativeScope.getInstance();
         loadConstructs(globalScope, nativeScope);
 
-        BuiltinPackageRepository[] pkgRepos = loadPackageRepositories();
-        // this is just a dummy FileSystemPackageRepository instance. Paths.get(".") has no meaning here
-        FileSystemPackageRepository fileRepo = new FileSystemPackageRepository(Paths.get("."), pkgRepos);
         // create program
         BLangProgram bLangProgram = new BLangProgram(globalScope, nativeScope, BLangProgram.Category.LIBRARY_PROGRAM);
-        // turn off skipping native function parsing
-        System.setProperty("skipNatives", "false");
-
-
-
-        // process each package separately
-        for (String builtInPkg : packagesArray) {
-            Path packagePath = Paths.get(builtInPkg.replace(".", File.separator));
-            if (bLangProgram.resolve(new SymbolName(builtInPkg)) == null) {
-                // load package
-                BLangPackage pkg = BLangPackages.loadPackage(packagePath, fileRepo,
-                        bLangProgram);
-                Stream.of(pkg.getAnnotationDefs()).forEach((annotationDef) -> extractAnnotationDefs(packages,
-                        pkg.getPackagePath(), annotationDef));
-                Stream.of(pkg.getConnectors()).forEach((connector) -> extractConnector(packages, pkg.getPackagePath(),
-                        connector));
-                Stream.of(pkg.getFunctions()).forEach((function) -> extractFunction(packages, pkg.getPackagePath(),
-                        function));
-            }
-        }
-        return packages;
+        return getResolvedPackagesMap(bLangProgram, packagesArray);
     }
 
-    public static Map<String, ModelPackage> getPackage(BLangProgram bLangProgram, String[] packagesArray) {
+    /**
+     * Get a resolved package map for a given package names array
+     * @param bLangProgram
+     * @param packagesArray
+     * @return
+     */
+    public static Map<String, ModelPackage> getResolvedPackagesMap(BLangProgram bLangProgram, String[] packagesArray) {
         final Map<String, ModelPackage> packages = new HashMap<>();
-
         BuiltinPackageRepository[] pkgRepos = loadPackageRepositories();
         // this is just a dummy FileSystemPackageRepository instance. Paths.get(".") has no meaning here
         FileSystemPackageRepository fileRepo = new FileSystemPackageRepository(Paths.get("."), pkgRepos);
         // turn off skipping native function parsing
         System.setProperty("skipNatives", "false");
-
 
         // process each package separately
         for (String builtInPkg : packagesArray) {
@@ -134,7 +115,6 @@ public class WorkspaceUtils {
                     function));
         }
     }
-
 
     /**
      * Extract annotations from ballerina lang
