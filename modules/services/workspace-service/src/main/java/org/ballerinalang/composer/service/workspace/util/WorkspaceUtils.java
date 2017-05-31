@@ -105,6 +105,11 @@ public class WorkspaceUtils {
         return packages;
     }
 
+    /**
+     * Add connectors, functions, annotations etc. to packages.
+     * @param pkg BLangPackage instance
+     * @param packages packages map
+     */
     private static void loadPackageMap(final BLangPackage pkg, Map<String, ModelPackage> packages) {
         if (pkg != null) {
             Stream.of(pkg.getAnnotationDefs()).forEach((annotationDef) -> extractAnnotationDefs(packages,
