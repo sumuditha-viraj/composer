@@ -23,6 +23,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.internal.LinkedTreeMap;
 import io.netty.channel.Channel;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
+import org.ballerinalang.composer.service.workspace.common.Utils;
 import org.ballerinalang.composer.service.workspace.langserver.consts.LangServerConstants;
 import org.ballerinalang.composer.service.workspace.langserver.dto.CompletionItem;
 import org.ballerinalang.composer.service.workspace.langserver.dto.DidSaveTextDocumentParams;
@@ -39,22 +40,39 @@ import org.ballerinalang.composer.service.workspace.langserver.dto.TextDocumentI
 import org.ballerinalang.composer.service.workspace.langserver.dto.TextDocumentPositionParams;
 import org.ballerinalang.composer.service.workspace.langserver.dto.capabilities.ServerCapabilitiesDTO;
 import org.ballerinalang.composer.service.workspace.langserver.util.WorkspaceSymbolProvider;
+import org.ballerinalang.model.BallerinaFile;
+import org.ballerinalang.model.GlobalScope;
+import org.ballerinalang.model.NativeScope;
+import org.ballerinalang.model.SymbolName;
+import org.ballerinalang.model.types.BTypes;
+import org.ballerinalang.natives.NativeConstructLoader;
+import org.ballerinalang.util.exceptions.NativeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
+import java.util.ServiceLoader;
+
 
 /**
  * Language server Manager which manage langServer requests from the clients.
  */
 public class LangServerManager {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(LangServerManager.class);
-    
+
     private static LangServerManager langServerManagerInstance;
-    
+
     private LangServer langserver;
 
     private LangServerSession langServerSession;
@@ -99,11 +117,11 @@ public class LangServerManager {
             this.langserver.startServer();
         }
     }
-    
+
     void addLaunchSession(Channel channel) {
         this.langServerSession = new LangServerSession(channel);
     }
-    
+
     void processFrame(String json) {
         Gson gson = new Gson();
         RequestMessage message = gson.fromJson(json, RequestMessage.class);
@@ -119,6 +137,7 @@ public class LangServerManager {
 
     /**
      * Process the received Requests
+     *
      * @param message Message
      */
     private void processRequest(RequestMessage message) {
@@ -149,6 +168,7 @@ public class LangServerManager {
 
     /**
      * Process received notifications
+     *
      * @param message Message
      */
     private void processNotification(RequestMessage message) {
@@ -176,10 +196,11 @@ public class LangServerManager {
             logger.warn("Dropped the notification [" + message.getMethod() + "]");
         }
     }
-    
+
     /**
      * Push message to client.
-     * @param session current session
+     *
+     * @param session  current session
      * @param response response message
      */
     private void pushMessageToClient(LangServerSession session, ResponseMessage response) {
@@ -191,6 +212,7 @@ public class LangServerManager {
 
     /**
      * Process Invalid Method found
+     *
      * @param message Message
      */
     private void invalidMethodFound(Message message) {
@@ -200,10 +222,11 @@ public class LangServerManager {
 
     /**
      * Send error response to invalid requests
+     *
      * @param errorMessage Error Message
-     * @param errorCode Error code
-     * @param message Message
-     * @param errorData ErrorData
+     * @param errorCode    Error code
+     * @param message      Message
+     * @param errorData    ErrorData
      */
     private void sendErrorResponse(String errorMessage, int errorCode, Message message, ErrorData errorData) {
         ResponseMessage responseMessageDTO = new ResponseMessage();
@@ -224,8 +247,10 @@ public class LangServerManager {
 
 
     // Start Request Handlers
+
     /**
      * Process initialize request
+     *
      * @param message Request Message
      */
     private void initialize(Message message) {
@@ -245,8 +270,10 @@ public class LangServerManager {
 
 
     // Start Notification handlers
+
     /**
      * Handle Document did open notification
+     *
      * @param message Request Message
      */
     private void documentDidOpen(Message message) {
@@ -268,6 +295,7 @@ public class LangServerManager {
 
     /**
      * Handle Document did close notification
+     *
      * @param message Request Message
      */
     private void documentDidClose(Message message) {
@@ -330,6 +358,7 @@ public class LangServerManager {
 
     /**
      * Handle the get workspace symbol requests
+     *
      * @param message Request Message
      */
     private void getWorkspaceSymbol(Message message) {
@@ -347,6 +376,7 @@ public class LangServerManager {
 
     /**
      * Process Shutdown notification
+     *
      * @param message Request Message
      */
     private void shutdown(Message message) {
@@ -357,6 +387,7 @@ public class LangServerManager {
 
     /**
      * Handle exit notification
+     *
      * @param message Request Message
      */
     private void exit(Message message) {
@@ -365,6 +396,7 @@ public class LangServerManager {
 
     /**
      * Get the completion items
+     *
      * @param message - Request Message
      */
     private void getCompletionItems(Message message) {
@@ -379,17 +411,35 @@ public class LangServerManager {
             logger.info(position.toString());
 
             ArrayList<CompletionItem> completionItems = new ArrayList<>();
-            CompletionItem completionItem1 = new CompletionItem();
-            completionItem1.setLabel("Label1");
-            CompletionItem completionItem2 = new CompletionItem();
-            completionItem2.setLabel("Label2");
-            completionItems.add(completionItem1);
-            completionItems.add(completionItem2);
 
-            ResponseMessage responseMessage = new ResponseMessage();
-            responseMessage.setId(((RequestMessage) message).getId());
-            responseMessage.setResult(completionItems.toArray(new CompletionItem[0]));
-            pushMessageToClient(langServerSession, responseMessage);
+            try {
+                List<String> symbols = getSymbols(textContent, position, "temp/untitled");
+
+                for (Object symbol : symbols) {
+                    if (symbol instanceof SymbolName) {
+                        CompletionItem completionItem1 = new CompletionItem();
+                        completionItem1.setLabel(((SymbolName) symbol).getName());
+                        completionItems.add(completionItem1);
+                    }
+
+                }
+
+                CompletionItem completionItem1 = new CompletionItem();
+                completionItem1.setLabel("Label1");
+                CompletionItem completionItem2 = new CompletionItem();
+                completionItem2.setLabel("Label2");
+                completionItems.add(completionItem1);
+                completionItems.add(completionItem2);
+
+                ResponseMessage responseMessage = new ResponseMessage();
+                responseMessage.setId(((RequestMessage) message).getId());
+                responseMessage.setResult(completionItems.toArray(new CompletionItem[0]));
+                pushMessageToClient(langServerSession, responseMessage);
+            } catch (IOException e) {
+                // TODO
+            }
+
+
         } else {
             logger.warn("Invalid Message type found");
         }
@@ -411,5 +461,48 @@ public class LangServerManager {
 
     public Map<String, TextDocumentItem> getClosedDocumentSessions() {
         return closedDocumentSessions;
+    }
+
+    private static List<String> getSymbols(String content, Position position, String path) throws IOException {
+
+        InputStream stream = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
+        Path filePath = Paths.get(path);
+
+
+        // Load all natives to globalscope
+        GlobalScope globalScope = GlobalScope.getInstance();
+        NativeScope nativeScope = NativeScope.getInstance();
+        loadConstructs(globalScope, nativeScope);
+
+        BallerinaFile bFile = Utils.getBFile(stream, filePath);
+
+        ArrayList completionItem = new ArrayList<>();
+
+        CompletionItemAccumulator jsonModelBuilder = new CompletionItemAccumulator(completionItem, position);
+        bFile.accept(jsonModelBuilder);
+
+
+        return completionItem;
+    }
+
+    /**
+     * Load constructs
+     * @param globalScope globalScope
+     * @param nativeScope nativeScope
+     * */
+    private static void loadConstructs(GlobalScope globalScope, NativeScope nativeScope) {
+        BTypes.loadBuiltInTypes(globalScope);
+        Iterator<NativeConstructLoader> nativeConstructLoaders =
+                ServiceLoader.load(NativeConstructLoader.class).iterator();
+        while (nativeConstructLoaders.hasNext()) {
+            NativeConstructLoader constructLoader = nativeConstructLoaders.next();
+            try {
+                constructLoader.load(nativeScope);
+            } catch (NativeException e) {
+                throw e;
+            } catch (Throwable t) {
+                throw new NativeException("internal error occured", t);
+            }
+        }
     }
 }
