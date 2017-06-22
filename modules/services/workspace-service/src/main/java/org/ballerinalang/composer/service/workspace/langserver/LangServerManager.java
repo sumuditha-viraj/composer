@@ -417,6 +417,7 @@ public class LangServerManager {
             bFile.setFileName("temp.bal");
             bFile.setPackageName(".");
 
+
             AutoCompleteSuggester autoCompleteSuggester = new AutoCompleteSuggesterImpl();
             CapturePossibleTokenStrategy capturePossibleTokenStrategy = new CapturePossibleTokenStrategy(position);
             try {
@@ -440,34 +441,6 @@ public class LangServerManager {
                 this.sendErrorResponse(LangServerConstants.INTERNAL_ERROR_LINE,
                         LangServerConstants.INTERNAL_ERROR, message, null);
             }
-
-            try {
-                List<String> symbols = getSymbols(textContent, position, "temp/untitled");
-
-                for (Object symbol : symbols) {
-                    if (symbol instanceof SymbolName) {
-                        CompletionItem completionItem1 = new CompletionItem();
-                        completionItem1.setLabel(((SymbolName) symbol).getName());
-                        completionItems.add(completionItem1);
-                    }
-
-                }
-
-                CompletionItem completionItem1 = new CompletionItem();
-                completionItem1.setLabel("Label1");
-                CompletionItem completionItem2 = new CompletionItem();
-                completionItem2.setLabel("Label2");
-                completionItems.add(completionItem1);
-                completionItems.add(completionItem2);
-
-                ResponseMessage responseMessage = new ResponseMessage();
-                responseMessage.setId(((RequestMessage) message).getId());
-                responseMessage.setResult(completionItems.toArray(new CompletionItem[0]));
-                pushMessageToClient(langServerSession, responseMessage);
-            } catch (IOException e) {
-                // TODO
-            }
-
 
         } else {
             logger.warn("Invalid Message type found");
