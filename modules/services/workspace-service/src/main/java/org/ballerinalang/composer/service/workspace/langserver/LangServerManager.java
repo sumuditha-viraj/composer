@@ -23,7 +23,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.internal.LinkedTreeMap;
 import io.netty.channel.Channel;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
-import org.ballerinalang.composer.service.workspace.common.Utils;
 import org.ballerinalang.composer.service.workspace.langserver.consts.LangServerConstants;
 import org.ballerinalang.composer.service.workspace.langserver.dto.CompletionItem;
 import org.ballerinalang.composer.service.workspace.langserver.dto.DidSaveTextDocumentParams;
@@ -44,28 +43,15 @@ import org.ballerinalang.composer.service.workspace.langserver.suggetions.AutoCo
 import org.ballerinalang.composer.service.workspace.langserver.suggetions.CapturePossibleTokenStrategy;
 import org.ballerinalang.composer.service.workspace.langserver.suggetions.SuggestionsFilterDataModel;
 import org.ballerinalang.composer.service.workspace.langserver.util.WorkspaceSymbolProvider;
+import org.ballerinalang.composer.service.workspace.rest.datamodel.BFile;
 import org.ballerinalang.model.BallerinaFile;
-import org.ballerinalang.model.GlobalScope;
-import org.ballerinalang.model.NativeScope;
 import org.ballerinalang.model.SymbolName;
-import org.ballerinalang.model.types.BTypes;
-import org.ballerinalang.natives.NativeConstructLoader;
-import org.ballerinalang.util.exceptions.NativeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import org.ballerinalang.composer.service.workspace.rest.datamodel.BFile;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
-import java.util.ServiceLoader;
 
 
 /**
@@ -463,48 +449,5 @@ public class LangServerManager {
 
     public Map<String, TextDocumentItem> getClosedDocumentSessions() {
         return closedDocumentSessions;
-    }
-
-    private static List<String> getSymbols(String content, Position position, String path) throws IOException {
-
-        InputStream stream = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
-        Path filePath = Paths.get(path);
-
-
-        // Load all natives to globalscope
-        GlobalScope globalScope = GlobalScope.getInstance();
-        NativeScope nativeScope = NativeScope.getInstance();
-        loadConstructs(globalScope, nativeScope);
-
-        BallerinaFile bFile = Utils.getBFile(stream, filePath);
-
-        ArrayList completionItem = new ArrayList<>();
-
-        CompletionItemAccumulator jsonModelBuilder = new CompletionItemAccumulator(completionItem, position);
-        bFile.accept(jsonModelBuilder);
-
-
-        return completionItem;
-    }
-
-    /**
-     * Load constructs
-     * @param globalScope globalScope
-     * @param nativeScope nativeScope
-     * */
-    private static void loadConstructs(GlobalScope globalScope, NativeScope nativeScope) {
-        BTypes.loadBuiltInTypes(globalScope);
-        Iterator<NativeConstructLoader> nativeConstructLoaders =
-                ServiceLoader.load(NativeConstructLoader.class).iterator();
-        while (nativeConstructLoaders.hasNext()) {
-            NativeConstructLoader constructLoader = nativeConstructLoaders.next();
-            try {
-                constructLoader.load(nativeScope);
-            } catch (NativeException e) {
-                throw e;
-            } catch (Throwable t) {
-                throw new NativeException("internal error occured", t);
-            }
-        }
     }
 }

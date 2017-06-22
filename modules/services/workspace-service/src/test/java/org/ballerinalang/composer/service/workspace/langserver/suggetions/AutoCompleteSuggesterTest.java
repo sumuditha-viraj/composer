@@ -36,7 +36,8 @@ public class AutoCompleteSuggesterTest {
         position.setCharacter(14);
         AutoCompleteSuggester autoCompleteSuggester = new AutoCompleteSuggesterImpl();
         CapturePossibleTokenStrategy capturePossibleTokenStrategy = new CapturePossibleTokenStrategy(position);
-        BallerinaFile ballerinaFile = autoCompleteSuggester.getBallerinaFile(bFile, position, capturePossibleTokenStrategy);
+        BallerinaFile ballerinaFile = autoCompleteSuggester.getBallerinaFile(bFile, position,
+                capturePossibleTokenStrategy);
         capturePossibleTokenStrategy.getSuggestionsFilterDataModel().setBallerinaFile(ballerinaFile);
         SuggestionsFilterDataModel dm = capturePossibleTokenStrategy.getSuggestionsFilterDataModel();
 
