@@ -39,6 +39,10 @@ import org.ballerinalang.composer.service.workspace.langserver.dto.TextDocumentI
 import org.ballerinalang.composer.service.workspace.langserver.dto.TextDocumentItem;
 import org.ballerinalang.composer.service.workspace.langserver.dto.TextDocumentPositionParams;
 import org.ballerinalang.composer.service.workspace.langserver.dto.capabilities.ServerCapabilitiesDTO;
+import org.ballerinalang.composer.service.workspace.langserver.suggetions.AutoCompleteSuggester;
+import org.ballerinalang.composer.service.workspace.langserver.suggetions.AutoCompleteSuggesterImpl;
+import org.ballerinalang.composer.service.workspace.langserver.suggetions.CapturePossibleTokenStrategy;
+import org.ballerinalang.composer.service.workspace.langserver.suggetions.SuggestionsFilterDataModel;
 import org.ballerinalang.composer.service.workspace.langserver.util.WorkspaceSymbolProvider;
 import org.ballerinalang.model.BallerinaFile;
 import org.ballerinalang.model.GlobalScope;
@@ -49,13 +53,13 @@ import org.ballerinalang.natives.NativeConstructLoader;
 import org.ballerinalang.util.exceptions.NativeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import org.ballerinalang.composer.service.workspace.rest.datamodel.BFile;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -108,7 +112,6 @@ public class LangServerManager {
         }
         return langServerManagerInstance;
     }
-
 
     public void init(int port) {
         // start the language server if it is not started yet.
@@ -406,11 +409,37 @@ public class LangServerManager {
                     TextDocumentPositionParams.class);
             String textContent = textDocumentPositionParams.getText();
             Position position = textDocumentPositionParams.getPosition();
-
-            logger.info(textContent);
-            logger.info(position.toString());
-
             ArrayList<CompletionItem> completionItems = new ArrayList<>();
+
+            BFile bFile = new BFile();
+            bFile.setContent(textContent);
+            bFile.setFilePath("/temp");
+            bFile.setFileName("temp.bal");
+            bFile.setPackageName(".");
+
+            AutoCompleteSuggester autoCompleteSuggester = new AutoCompleteSuggesterImpl();
+            CapturePossibleTokenStrategy capturePossibleTokenStrategy = new CapturePossibleTokenStrategy(position);
+            try {
+                BallerinaFile ballerinaFile =
+                        autoCompleteSuggester.getBallerinaFile(bFile, position, capturePossibleTokenStrategy);
+                capturePossibleTokenStrategy.getSuggestionsFilterDataModel().setBallerinaFile(ballerinaFile);
+                SuggestionsFilterDataModel dm = capturePossibleTokenStrategy.getSuggestionsFilterDataModel();
+                ArrayList symbols = new ArrayList<>();
+
+                CompletionItemAccumulator jsonModelBuilder = new CompletionItemAccumulator(symbols, position);
+                dm.getBallerinaFile().accept(jsonModelBuilder);
+
+                for (Object symbol : symbols) {
+                    if (symbol instanceof SymbolName) {
+                        CompletionItem completionItem = new CompletionItem();
+                        completionItem.setLabel(((SymbolName) symbol).getName());
+                        completionItems.add(completionItem);
+                    }
+                }
+            } catch (IOException e) {
+                this.sendErrorResponse(LangServerConstants.INTERNAL_ERROR_LINE,
+                        LangServerConstants.INTERNAL_ERROR, message, null);
+            }
 
             try {
                 List<String> symbols = getSymbols(textContent, position, "temp/untitled");
