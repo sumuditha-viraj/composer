@@ -427,6 +427,10 @@ public class LangServerManager {
                 this.sendErrorResponse(LangServerConstants.INTERNAL_ERROR_LINE,
                         LangServerConstants.INTERNAL_ERROR, message, null);
             }
+            ResponseMessage responseMessage = new ResponseMessage();
+            responseMessage.setId(((RequestMessage) message).getId());
+            responseMessage.setResult(completionItems.toArray(new CompletionItem[0]));
+            pushMessageToClient(langServerSession, responseMessage);
 
         } else {
             logger.warn("Invalid Message type found");
