@@ -139,9 +139,7 @@ import org.ballerinalang.natives.NativeUnitProxy;
 import org.ballerinalang.natives.connectors.AbstractNativeAction;
 import org.ballerinalang.runtime.worker.WorkerDataChannel;
 import org.ballerinalang.util.codegen.InstructionCodes;
-import org.ballerinalang.util.exceptions.BLangExceptionHelper;
 import org.ballerinalang.util.exceptions.LinkerException;
-import org.ballerinalang.util.exceptions.SemanticErrors;
 import org.ballerinalang.util.exceptions.SemanticException;
 import org.ballerinalang.util.program.BLangPrograms;
 
@@ -149,10 +147,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.Stack;
 
 /**
@@ -177,9 +173,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     private Stack<SymbolScope> parentScope = new Stack<>();
 
-    private int whileStmtCount = 0;
-    private int transactionStmtCount = 0;
-    private boolean isWithinWorker = false;
     private SymbolScope currentScope;
     private SymbolScope nativeScope;
 
@@ -299,19 +292,14 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(ConstDef constDef) {
+        checkAndSetClosestScope(constDef);
         SimpleTypeName typeName = constDef.getTypeName();
         BType bType = BTypes.resolveType(typeName, currentScope, constDef.getNodeLocation());
         constDef.setType(bType);
-        if (!BTypes.isValueType(bType)) {
-            BLangExceptionHelper.throwSemanticError(constDef, SemanticErrors.INVALID_TYPE, typeName);
-        }
 
         // Check whether this constant is already defined.
         SymbolName symbolName = new SymbolName(constDef.getName(), currentPkg);
-        if (currentScope.resolve(symbolName) != null) {
-            BLangExceptionHelper.throwSemanticError(constDef,
-                    SemanticErrors.REDECLARED_SYMBOL, constDef.getName());
-        }
+
 
         // Define the constant in the package scope
         currentScope.define(symbolName, constDef);
@@ -338,6 +326,7 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(GlobalVariableDef globalVarDef) {
+        checkAndSetClosestScope(globalVarDef);
         VariableDefStmt variableDefStmt = globalVarDef.getVariableDefStmt();
         variableDefStmt.accept(this);
 
@@ -355,6 +344,8 @@ public class CompletionItemAccumulator implements NodeVisitor {
         // Visit the contents within a service
         // Open a new symbol scope
         openScope(service);
+
+        checkAndSetClosestScope(service);
 
         for (AnnotationAttachment annotationAttachment : service.getAnnotations()) {
             annotationAttachment.setAttachedPoint(AttachmentPoint.SERVICE);
@@ -380,6 +371,8 @@ public class CompletionItemAccumulator implements NodeVisitor {
     public void visit(BallerinaConnectorDef connectorDef) {
         // Open the connector namespace
         openScope(connectorDef);
+
+        checkAndSetClosestScope(connectorDef);
 
         for (AnnotationAttachment annotationAttachment : connectorDef.getAnnotations()) {
             annotationAttachment.setAttachedPoint(AttachmentPoint.CONNECTOR);
@@ -414,6 +407,8 @@ public class CompletionItemAccumulator implements NodeVisitor {
         // Visit the contents within a resource
         // Open a new symbol scope
         openScope(resource);
+        checkAndSetClosestScope(resource);
+
         currentCallableUnit = resource;
 
         // TODO Check whether the reply statement is missing. Ignore if the function does not return anything.
@@ -436,7 +431,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
         BlockStmt blockStmt = resource.getResourceBody();
         blockStmt.accept(this);
-        checkAndAddReplyStmt(blockStmt);
 
         resolveWorkerInteractions(resource);
 
@@ -576,11 +570,7 @@ public class CompletionItemAccumulator implements NodeVisitor {
                     }
                 }
 
-                if (!statementCompleted && !isWorkerInWorker) {
-                    // TODO: Need to have a specific error message
-                    BLangExceptionHelper.throwSemanticError(statement,
-                            SemanticErrors.WORKER_INTERACTION_NOT_VALID);
-                }
+
             }
             callableUnit.getWorkerInteractionStatements().removeAll(processedStatements);
         }
@@ -629,6 +619,7 @@ public class CompletionItemAccumulator implements NodeVisitor {
         openScope(function);
         currentCallableUnit = function;
 
+        checkAndSetClosestScope(function);
         //resolveWorkerInteractions(function.gerWorkerInteractions());
 
         // Check whether the return statement is missing. Ignore if the function does not return anything.
@@ -664,11 +655,8 @@ public class CompletionItemAccumulator implements NodeVisitor {
             BlockStmt blockStmt = function.getCallableUnitBody();
             blockStmt.accept(this);
 
-            if (function.getReturnParameters().length > 0 && !blockStmt.isAlwaysReturns()) {
-                BLangExceptionHelper.throwSemanticError(function, SemanticErrors.MISSING_RETURN_STATEMENT);
-            }
 
-            checkAndAddReturnStmt(function.getReturnParamTypes().length, blockStmt);
+            //checkAndAddReturnStmt(function.getReturnParamTypes().length, blockStmt);
         }
 
         resolveWorkerInteractions(function);
@@ -694,6 +682,8 @@ public class CompletionItemAccumulator implements NodeVisitor {
         // Open a new symbol scope
         openScope(typeMapper);
         currentCallableUnit = typeMapper;
+
+        checkAndSetClosestScope(typeMapper);
 
         for (AnnotationAttachment annotationAttachment : typeMapper.getAnnotations()) {
             annotationAttachment.setAttachedPoint(AttachmentPoint.TYPEMAPPER);
@@ -753,6 +743,8 @@ public class CompletionItemAccumulator implements NodeVisitor {
         openScope(action);
         currentCallableUnit = action;
 
+        checkAndSetClosestScope(action);
+
         for (AnnotationAttachment annotationAttachment : action.getAnnotations()) {
             annotationAttachment.setAttachedPoint(AttachmentPoint.ACTION);
             annotationAttachment.accept(this);
@@ -763,12 +755,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
             parameterDef.accept(this);
         }
 
-        // First parameter should be of type connector in which these actions are defined.
-        ParameterDef firstParamDef = action.getParameterDefs()[0];
-        if (firstParamDef.getType() != action.getConnectorDef()) {
-            BLangExceptionHelper.throwSemanticError(action, SemanticErrors.INCOMPATIBLE_TYPES,
-                    action.getConnectorDef(), firstParamDef.getType());
-        }
 
         for (ParameterDef parameterDef : action.getReturnParameters()) {
             // Check whether these are unnamed set of return types.
@@ -789,9 +775,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
             BlockStmt blockStmt = action.getCallableUnitBody();
             blockStmt.accept(this);
 
-            if (action.getReturnParameters().length > 0 && !blockStmt.isAlwaysReturns()) {
-                BLangExceptionHelper.throwSemanticError(action, SemanticErrors.MISSING_RETURN_STATEMENT);
-            }
 
             checkAndAddReturnStmt(action.getReturnParameters().length, blockStmt);
         }
@@ -815,6 +798,7 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(Worker worker) {
+        checkAndSetClosestScope(worker);
         // Open a new symbol scope. This is done manually to avoid falling back to package scope
         parentScope.push(currentScope);
         currentScope = worker;
@@ -852,9 +836,7 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
 
         BlockStmt blockStmt = worker.getCallableUnitBody();
-        isWithinWorker = true;
         blockStmt.accept(this);
-        isWithinWorker = false;
 
         //resolveWorkerInteractions(worker);
 
@@ -877,16 +859,12 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     private void addWorkerSymbol(Worker worker) {
         SymbolName symbolName = worker.getSymbolName();
-        BLangSymbol varSymbol = currentScope.resolve(symbolName);
-        if (varSymbol != null) {
-            BLangExceptionHelper.throwSemanticError(worker,
-                    SemanticErrors.REDECLARED_SYMBOL, worker.getName());
-        }
         currentScope.define(symbolName, worker);
     }
 
     @Override
     public void visit(StructDef structDef) {
+        checkAndSetClosestScope(structDef);
         for (AnnotationAttachment annotationAttachment : structDef.getAnnotations()) {
             annotationAttachment.setAttachedPoint(AttachmentPoint.STRUCT);
             annotationAttachment.accept(this);
@@ -895,6 +873,7 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(AnnotationAttachment annotation) {
+        checkAndSetClosestScope(annotation);
         //AttachmentPoint attachedPoint = annotation.getAttachedPoint();
         //SymbolName annotationSymName = new SymbolName(annotation.getName(), annotation.getPkgPath());
         //BLangSymbol annotationSymbol = currentScope.resolve(annotationSymName);
@@ -926,10 +905,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
         annotation.getAttributeNameValuePairs().forEach((attributeName, attributeValue) -> {
             // Check attribute existence
             BLangSymbol attributeSymbol = annotationDef.resolveMembers(new SymbolName(attributeName));
-            if (attributeSymbol == null || !(attributeSymbol instanceof AnnotationAttributeDef)) {
-                BLangExceptionHelper.throwSemanticError(annotation, SemanticErrors.NO_SUCH_ATTRIBUTE,
-                        attributeName, annotation.getName());
-            }
 
             // Check types
             AnnotationAttributeDef attributeDef = ((AnnotationAttributeDef) attributeSymbol);
@@ -940,19 +915,10 @@ public class CompletionItemAccumulator implements NodeVisitor {
                     attributeType.getPackagePath()));
 
             if (attributeType.isArrayType()) {
-                if (!valueType.isArrayType()) {
-                    BLangExceptionHelper.throwSemanticError(attributeValue, SemanticErrors.INCOMPATIBLE_TYPES,
-                            attributeTypeSymbol.getSymbolName() + TypeConstants.ARRAY_TNAME,
-                            valueTypeSymbol.getSymbolName());
-                }
 
                 AnnotationAttributeValue[] valuesArray = attributeValue.getValueArray();
                 for (AnnotationAttributeValue value : valuesArray) {
                     valueTypeSymbol = currentScope.resolve(value.getType().getSymbolName());
-                    if (attributeTypeSymbol != valueTypeSymbol) {
-                        BLangExceptionHelper.throwSemanticError(attributeValue, SemanticErrors.INCOMPATIBLE_TYPES,
-                                attributeTypeSymbol.getSymbolName(), valueTypeSymbol.getSymbolName());
-                    }
 
                     // If the value of the attribute is another annotation, then recursively
                     // traverse to its attributes and validate
@@ -962,16 +928,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
                     }
                 }
             } else {
-                if (valueType.isArrayType()) {
-                    BLangExceptionHelper.throwSemanticError(attributeValue,
-                            SemanticErrors.INCOMPATIBLE_TYPES_ARRAY_FOUND, attributeTypeSymbol.getName());
-                }
-
-                if (attributeTypeSymbol != valueTypeSymbol) {
-                    BLangExceptionHelper.throwSemanticError(attributeValue, SemanticErrors.INCOMPATIBLE_TYPES,
-                            attributeTypeSymbol.getSymbolName(), valueTypeSymbol.getSymbolName());
-                }
-
                 // If the value of the attribute is another annotation, then recursively
                 // traverse to its attributes and validate
                 AnnotationAttachment childAnnotation = attributeValue.getAnnotationValue();
@@ -1043,40 +999,18 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(AnnotationAttributeDef annotationAttributeDef) {
+        checkAndSetClosestScope(annotationAttributeDef);
         SimpleTypeName fieldType = annotationAttributeDef.getTypeName();
         BasicLiteral fieldVal = annotationAttributeDef.getAttributeValue();
 
         if (fieldVal != null) {
             fieldVal.accept(this);
-            BType valueType = fieldVal.getType();
-
-            if (!BTypes.isBuiltInTypeName(fieldType.getName())) {
-                BLangExceptionHelper.throwSemanticError(annotationAttributeDef, SemanticErrors.INVALID_DEFAULT_VALUE);
-            }
-
-            BLangSymbol typeSymbol = currentScope.resolve(fieldType.getSymbolName());
-            BType fieldBType = (BType) typeSymbol;
-            if (!BTypes.isValueType(fieldBType)) {
-                BLangExceptionHelper.throwSemanticError(annotationAttributeDef, SemanticErrors.INVALID_DEFAULT_VALUE);
-            }
-
-            if (fieldBType != valueType) {
-                BLangExceptionHelper.throwSemanticError(annotationAttributeDef,
-                        SemanticErrors.INVALID_OPERATION_INCOMPATIBLE_TYPES, fieldType, fieldVal.getTypeName());
-            }
         } else {
             BLangSymbol typeSymbol;
             if (fieldType.isArrayType()) {
                 typeSymbol = currentScope.resolve(new SymbolName(fieldType.getName(), fieldType.getPackagePath()));
             } else {
                 typeSymbol = currentScope.resolve(fieldType.getSymbolName());
-            }
-
-            // Check whether the field type is a built in value type or an annotation.
-            if (((typeSymbol instanceof BType) && !BTypes.isValueType((BType) typeSymbol)) ||
-                    (!(typeSymbol instanceof BType) && !(typeSymbol instanceof AnnotationDef))) {
-                BLangExceptionHelper.throwSemanticError(annotationAttributeDef, SemanticErrors.INVALID_ATTRIBUTE_TYPE,
-                        fieldType);
             }
 
             if (!(typeSymbol instanceof BType)) {
@@ -1087,6 +1021,7 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(AnnotationDef annotationDef) {
+        checkAndSetClosestScope(annotationDef);
         for (AnnotationAttributeDef fields : annotationDef.getAttributeDefs()) {
             fields.accept(this);
         }
@@ -1099,6 +1034,8 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(ParameterDef paramDef) {
+        checkAndSetClosestScope(paramDef);
+
         BType bType = BTypes.resolveType(paramDef.getTypeName(), currentScope, paramDef.getNodeLocation());
         paramDef.setType(bType);
 
@@ -1121,6 +1058,7 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(VariableDefStmt varDefStmt) {
+        checkAndSetClosestScope(varDefStmt);
         // Resolves the type of the variable
         VariableDef varDef = varDefStmt.getVariableDef();
         BType lhsType = BTypes.resolveType(varDef.getTypeName(), currentScope, varDef.getNodeLocation());
@@ -1131,10 +1069,7 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
         // Check whether this variable is already defined, if not define it.
         SymbolName symbolName = new SymbolName(varDef.getName(), currentPkg);
-        BLangSymbol varSymbol = currentScope.resolve(symbolName);
-        if (varSymbol != null && varSymbol.getSymbolScope().getScopeName() == currentScope.getScopeName()) {
-            BLangExceptionHelper.throwSemanticError(varDef, SemanticErrors.REDECLARED_SYMBOL, varDef.getName());
-        }
+
         currentScope.define(symbolName, varDef);
 
         // Set memory location
@@ -1152,35 +1087,17 @@ public class CompletionItemAccumulator implements NodeVisitor {
             return;
         }
 
-        BType rhsType;
         if (rExpr instanceof ExecutableMultiReturnExpr) {
             rExpr.accept(this);
-            ExecutableMultiReturnExpr multiReturnExpr = (ExecutableMultiReturnExpr) rExpr;
-            BType[] returnTypes = multiReturnExpr.getTypes();
 
-            if (returnTypes.length != 1) {
-                BLangExceptionHelper.throwSemanticError(varDefStmt, SemanticErrors.ASSIGNMENT_COUNT_MISMATCH,
-                        "1", returnTypes.length);
-            }
-
-            rhsType = returnTypes[0];
         } else {
             visitSingleValueExpr(rExpr);
-            rhsType = rExpr.getType();
-        }
-
-        // Check whether the right-hand type can be assigned to the left-hand type.
-        AssignabilityResult result = performAssignabilityCheck(lhsType, rExpr);
-        if (result.implicitCastExpr != null) {
-            varDefStmt.setRExpr(result.implicitCastExpr);
-        } else if (!result.assignable) {
-            BLangExceptionHelper.throwSemanticError(varDefStmt, SemanticErrors.INCOMPATIBLE_ASSIGNMENT,
-                    rhsType, lhsType);
         }
     }
 
     @Override
     public void visit(AssignStmt assignStmt) {
+        checkAndSetClosestScope(assignStmt);
         Expression[] lExprs = assignStmt.getLExprs();
         visitLExprsOfAssignment(assignStmt, lExprs);
 
@@ -1194,7 +1111,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
         if (lExprs.length > 1 && (rExpr instanceof TypeCastExpression || rExpr instanceof TypeConversionExpr)) {
             ((AbstractExpression) rExpr).setMultiReturnAvailable(true);
             rExpr.accept(this);
-            checkForMultiValuedCastingErrors(assignStmt, lExprs, (ExecutableMultiReturnExpr) rExpr);
             return;
         }
 
@@ -1210,15 +1126,36 @@ public class CompletionItemAccumulator implements NodeVisitor {
         }
 
         visitSingleValueExpr(rExpr);
-        BType rhsType = rExpr.getType();
 
-        // Check whether the right-hand type can be assigned to the left-hand type.
-        AssignabilityResult result = performAssignabilityCheck(lhsType, rExpr);
-        if (result.implicitCastExpr != null) {
-            assignStmt.setRExpr(result.implicitCastExpr);
-        } else if (!result.assignable) {
-            BLangExceptionHelper.throwSemanticError(assignStmt, SemanticErrors.INCOMPATIBLE_ASSIGNMENT,
-                    rhsType, lhsType);
+    }
+
+    private void checkAndSetClosestScope(Node node) {
+        org.ballerinalang.model.values.Position start = node.getNodeLocation().getStartPosition();
+        org.ballerinalang.model.values.Position stop = new org.ballerinalang.model.values.Position();
+        getStopPosition(node, stop);
+
+        if (position.getLine() > start.getLineNumber()) {
+            if (stop.getLineNumber() != -1 && stop.getColumn() != -1) {
+                if (position.getLine() < stop.getLineNumber()) {
+                    closestScope = currentScope;
+                } else if (position.getLine() == stop.getLineNumber()) {
+                    if (position.getCharacter() <= stop.getColumn()) {
+                        closestScope = currentScope;
+                    }
+                }
+            }
+        } else if (position.getLine() == start.getLineNumber()) {
+            if (position.getCharacter() >= start.getColumn()) {
+                if (stop.getLineNumber() != -1 && stop.getColumn() != -1) {
+                    if (position.getLine() < stop.getLineNumber()) {
+                        closestScope = currentScope;
+                    } else if (position.getLine() == stop.getLineNumber()) {
+                        if (position.getCharacter() <= stop.getColumn()) {
+                            closestScope = currentScope;
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1226,68 +1163,33 @@ public class CompletionItemAccumulator implements NodeVisitor {
     public void visit(BlockStmt blockStmt) {
         openScope(blockStmt);
 
-        org.ballerinalang.model.values.Position start = blockStmt.getNodeLocation().getStartPosition();
-        org.ballerinalang.model.values.Position stop = new org.ballerinalang.model.values.Position();
-        getStopPosition(blockStmt, stop);
-
-        if (position.getLine() >= start.getLineNumber()) {
-            if (stop.getLineNumber() != -1 && stop.getColumn() != -1) {
-                if (position.getLine() <= stop.getLineNumber()) {
-                    closestScope = currentScope;
-                }
-            }
-        }
+        checkAndSetClosestScope(blockStmt);
 
         for (int stmtIndex = 0; stmtIndex < blockStmt.getStatements().length; stmtIndex++) {
             Statement stmt = blockStmt.getStatements()[stmtIndex];
-            if (stmt instanceof BreakStmt && whileStmtCount < 1) {
-                BLangExceptionHelper.throwSemanticError(stmt,
-                        SemanticErrors.BREAK_STMT_NOT_ALLOWED_HERE);
-            }
-
-            if (stmt instanceof AbortStmt && transactionStmtCount < 1) {
-                BLangExceptionHelper.throwSemanticError(stmt,
-                        SemanticErrors.ABORT_STMT_NOT_ALLOWED_HERE);
-            }
-
-            if (isWithinWorker) {
-                if (stmt instanceof ReplyStmt) {
-                    BLangExceptionHelper.throwSemanticError(stmt,
-                            SemanticErrors.REPLY_STMT_NOT_ALLOWED_HERE);
-                }
-//                else if (stmt instanceof ReturnStmt) {
-//                    BLangExceptionHelper.throwSemanticError(stmt,
-//                            SemanticErrors.RETURN_STMT_NOT_ALLOWED_HERE);
-//                }
-            }
-
-            if (stmt instanceof BreakStmt || stmt instanceof ReplyStmt || stmt instanceof AbortStmt) {
-                checkUnreachableStmt(blockStmt.getStatements(), stmtIndex + 1);
-            }
 
             stmt.accept(this);
 
             if (stmt.isAlwaysReturns()) {
-                checkUnreachableStmt(blockStmt.getStatements(), stmtIndex + 1);
                 blockStmt.setAlwaysReturns(true);
             }
         }
 
-
-
-
-
-
-
         closeScope();
     }
 
-    private void getStopPosition(SymbolScope node, org.ballerinalang.model.values.Position stopPosition) {
-        if (node instanceof Node) {
-            org.ballerinalang.model.values.Position stop = ((Node) node).getNodeLocation().getStopPosition();
+    private void getStopPosition(Node node, org.ballerinalang.model.values.Position stopPosition) {
+        NodeLocation location = node.getNodeLocation();
+        if (location != null) {
+            org.ballerinalang.model.values.Position stop = location.getStopPosition();
             if (stop.getLineNumber() == -1) {
-                Node parent = (Node) node.getEnclosingScope();
-                getStopPosition((SymbolScope) parent, stopPosition);
+                if (node instanceof SymbolScope) {
+                    SymbolScope enclosingScope = ((SymbolScope) node).getEnclosingScope();
+                    if (enclosingScope instanceof Node) {
+                        Node parent = (Node) enclosingScope;
+                        getStopPosition(parent, stopPosition);
+                    }
+                }
             } else {
                 stopPosition.setLineNumber(stop.getLineNumber());
                 stopPosition.setColumn(stop.getColumn());
@@ -1303,14 +1205,10 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(IfElseStmt ifElseStmt) {
+        checkAndSetClosestScope(ifElseStmt);
         boolean stmtReturns = true;
         Expression expr = ifElseStmt.getCondition();
         visitSingleValueExpr(expr);
-
-        if (expr.getType() != BTypes.typeBoolean) {
-            BLangExceptionHelper
-                    .throwSemanticError(ifElseStmt, SemanticErrors.INCOMPATIBLE_TYPES_BOOLEAN_EXPECTED, expr.getType());
-        }
 
         Statement thenBody = ifElseStmt.getThenBody();
         thenBody.accept(this);
@@ -1320,11 +1218,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
         for (IfElseStmt.ElseIfBlock elseIfBlock : ifElseStmt.getElseIfBlocks()) {
             Expression elseIfCondition = elseIfBlock.getElseIfCondition();
             visitSingleValueExpr(elseIfCondition);
-
-            if (elseIfCondition.getType() != BTypes.typeBoolean) {
-                BLangExceptionHelper.throwSemanticError(ifElseStmt, SemanticErrors.INCOMPATIBLE_TYPES_BOOLEAN_EXPECTED,
-                        elseIfCondition.getType());
-            }
 
             Statement elseIfBody = elseIfBlock.getElseIfBody();
             elseIfBody.accept(this);
@@ -1345,23 +1238,11 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(WhileStmt whileStmt) {
-        whileStmtCount++;
+        checkAndSetClosestScope(whileStmt);
         Expression expr = whileStmt.getCondition();
         visitSingleValueExpr(expr);
-
-        if (expr.getType() != BTypes.typeBoolean) {
-            BLangExceptionHelper
-                    .throwSemanticError(whileStmt, SemanticErrors.INCOMPATIBLE_TYPES_BOOLEAN_EXPECTED, expr.getType());
-        }
-
         BlockStmt blockStmt = whileStmt.getBody();
-        if (blockStmt.getStatements().length == 0) {
-            // This can be optimized later to skip the while statement
-            BLangExceptionHelper.throwSemanticError(blockStmt, SemanticErrors.NO_STATEMENTS_WHILE_LOOP);
-        }
-
         blockStmt.accept(this);
-        whileStmtCount--;
     }
 
     @Override
@@ -1371,35 +1252,12 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(TryCatchStmt tryCatchStmt) {
+        checkAndSetClosestScope(tryCatchStmt);
         tryCatchStmt.getTryBlock().accept(this);
 
-        BLangSymbol error = currentScope.resolve(new SymbolName(BALLERINA_ERROR, ERRORS_PACKAGE));
-        Set<BType> definedTypes = new HashSet<>();
-        if (tryCatchStmt.getCatchBlocks().length != 0) {
-            // Assumption : To use CatchClause, ballerina.lang.errors should be resolved before.
-            if (error == null || !(error instanceof StructDef)) {
-                BLangExceptionHelper.throwSemanticError(tryCatchStmt,
-                        SemanticErrors.CANNOT_RESOLVE_STRUCT, ERRORS_PACKAGE, BALLERINA_ERROR);
-            }
-        }
         for (TryCatchStmt.CatchBlock catchBlock : tryCatchStmt.getCatchBlocks()) {
             catchBlock.getParameterDef().setMemoryLocation(new StackVarLocation(++stackFrameOffset));
             catchBlock.getParameterDef().accept(this);
-            // Validation for error type.
-            if (!error.equals(catchBlock.getParameterDef().getType()) &&
-                    (!(catchBlock.getParameterDef().getType() instanceof StructDef) ||
-                            TypeLattice.getExplicitCastLattice().getEdgeFromTypes(catchBlock.getParameterDef()
-                                    .getType(), error, null) == null)) {
-                throw new SemanticException(BLangExceptionHelper.constructSemanticError(
-                        catchBlock.getCatchBlockStmt().getNodeLocation(),
-                        SemanticErrors.ONLY_ERROR_TYPE_ALLOWED_HERE));
-            }
-            // Validation for duplicate catch.
-            if (!definedTypes.add(catchBlock.getParameterDef().getType())) {
-                throw new SemanticException(BLangExceptionHelper.constructSemanticError(
-                        catchBlock.getCatchBlockStmt().getNodeLocation(),
-                        SemanticErrors.DUPLICATED_ERROR_CATCH, catchBlock.getParameterDef().getTypeName()));
-            }
             catchBlock.getCatchBlockStmt().accept(this);
         }
 
@@ -1410,6 +1268,7 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(ThrowStmt throwStmt) {
+        checkAndSetClosestScope(throwStmt);
         throwStmt.getExpr().accept(this);
         BType expressionType = null;
         if (throwStmt.getExpr() instanceof VariableRefExpr && throwStmt.getExpr().getType() instanceof StructDef) {
@@ -1423,36 +1282,31 @@ public class CompletionItemAccumulator implements NodeVisitor {
         }
         if (expressionType != null) {
             BLangSymbol error = currentScope.resolve(new SymbolName(BALLERINA_ERROR, ERRORS_PACKAGE));
-            // TODO : Fix this.
-            // Assumption : To use CatchClause, ballerina.lang.errors should be resolved before.
-            if (error == null) {
-                BLangExceptionHelper.throwSemanticError(throwStmt,
-                        SemanticErrors.CANNOT_RESOLVE_STRUCT, ERRORS_PACKAGE, BALLERINA_ERROR);
-            }
+
             if (error.equals(expressionType) || TypeLattice.getExplicitCastLattice().getEdgeFromTypes
                     (expressionType, error, null) != null) {
                 throwStmt.setAlwaysReturns(true);
                 return;
             }
         }
-        throw new SemanticException(BLangExceptionHelper.constructSemanticError(
-                throwStmt.getNodeLocation(), SemanticErrors.ONLY_ERROR_TYPE_ALLOWED_HERE));
     }
 
     @Override
     public void visit(FunctionInvocationStmt functionInvocationStmt) {
+        checkAndSetClosestScope(functionInvocationStmt);
         functionInvocationStmt.getFunctionInvocationExpr().accept(this);
     }
 
     @Override
     public void visit(ActionInvocationStmt actionInvocationStmt) {
+        checkAndSetClosestScope(actionInvocationStmt);
         actionInvocationStmt.getActionInvocationExpr().accept(this);
     }
 
     @Override
     public void visit(WorkerInvocationStmt workerInvocationStmt) {
 
-
+        checkAndSetClosestScope(workerInvocationStmt);
         Expression[] expressions = workerInvocationStmt.getExpressionList();
         BType[] bTypes = new BType[expressions.length];
         int p = 0;
@@ -1481,6 +1335,7 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(WorkerReplyStmt workerReplyStmt) {
+        checkAndSetClosestScope(workerReplyStmt);
         String workerName = workerReplyStmt.getWorkerName();
         SymbolName workerSymbol = new SymbolName(workerName);
 
@@ -1496,10 +1351,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
         if (!workerName.equals("default")) {
             BLangSymbol worker = currentScope.resolve(workerSymbol);
-            if (!(worker instanceof Worker)) {
-                BLangExceptionHelper.throwSemanticError(expressions[0], SemanticErrors.INCOMPATIBLE_TYPES_UNKNOWN_FOUND,
-                        workerSymbol);
-            }
 
             workerReplyStmt.setWorker((Worker) worker);
         }
@@ -1510,6 +1361,8 @@ public class CompletionItemAccumulator implements NodeVisitor {
         boolean stmtReturns = true;
         //open the fork join statement scope
         openScope(forkJoinStmt);
+
+        checkAndSetClosestScope(forkJoinStmt);
 
         // Visit workers
         for (Worker worker : forkJoinStmt.getWorkers()) {
@@ -1589,7 +1442,8 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(TransactionStmt transactionStmt) {
-        transactionStmtCount++;
+        checkAndSetClosestScope(transactionStmt);
+
         transactionStmt.getTransactionBlock().accept(this);
         TransactionStmt.AbortedBlock abortedBlock = transactionStmt.getAbortedBlock();
         if (abortedBlock != null) {
@@ -1599,7 +1453,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
         if (committedBlock != null) {
             committedBlock.getCommittedBlockStmt().accept(this);
         }
-        transactionStmtCount--;
     }
 
     @Override
@@ -1609,39 +1462,17 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(ReplyStmt replyStmt) {
-        if (currentCallableUnit instanceof Function) {
-            BLangExceptionHelper.throwSemanticError(currentCallableUnit,
-                    SemanticErrors.REPLY_STATEMENT_CANNOT_USED_IN_FUNCTION);
-        } else if (currentCallableUnit instanceof Action) {
-            BLangExceptionHelper.throwSemanticError(currentCallableUnit,
-                    SemanticErrors.REPLY_STATEMENT_CANNOT_USED_IN_ACTION);
-        }
-
-        if (replyStmt.getReplyExpr() instanceof ActionInvocationExpr) {
-            BLangExceptionHelper.throwSemanticError(currentCallableUnit,
-                    SemanticErrors.ACTION_INVOCATION_NOT_ALLOWED_IN_REPLY);
-        }
+        checkAndSetClosestScope(replyStmt);
 
         Expression replyExpr = replyStmt.getReplyExpr();
         if (replyExpr != null) {
             visitSingleValueExpr(replyExpr);
-            // reply statement supports only message type
-            if (replyExpr.getType() != BTypes.typeMessage) {
-                BLangExceptionHelper.throwSemanticError(replyExpr, SemanticErrors.INCOMPATIBLE_TYPES,
-                        BTypes.typeMessage, replyExpr.getType());
-            }
         }
     }
 
     @Override
     public void visit(ReturnStmt returnStmt) {
-        if (currentCallableUnit instanceof Resource) {
-            BLangExceptionHelper.throwSemanticError(returnStmt, SemanticErrors.RETURN_CANNOT_USED_IN_RESOURCE);
-        }
-
-        if (transactionStmtCount > 0) {
-            BLangExceptionHelper.throwSemanticError(returnStmt, SemanticErrors.RETURN_CANNOT_USED_IN_TRANSACTION);
-        }
+        checkAndSetClosestScope(returnStmt);
 
         // Expressions that this return statement contains.
         Expression[] returnArgExprs = returnStmt.getExprs();
@@ -1667,17 +1498,11 @@ public class CompletionItemAccumulator implements NodeVisitor {
             returnStmt.setExprs(returnExprs);
             return;
 
-        } else if (returnArgExprs.length == 0) {
-            // This function/action does not contain named return parameters.
-            // Therefore this is a semantic error.
-            BLangExceptionHelper.throwSemanticError(returnStmt, SemanticErrors.NOT_ENOUGH_ARGUMENTS_TO_RETURN);
         }
 
-        BType[] typesOfReturnExprs = new BType[returnArgExprs.length];
         for (int i = 0; i < returnArgExprs.length; i++) {
             Expression returnArgExpr = returnArgExprs[i];
             returnArgExpr.accept(this);
-            typesOfReturnExprs[i] = returnArgExpr.getType();
         }
 
         // Now check whether this return contains a function invocation expression which returns multiple values
@@ -1685,13 +1510,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
             FunctionInvocationExpr funcIExpr = (FunctionInvocationExpr) returnArgExprs[0];
             // Return types of the function invocations expression
             BType[] funcIExprReturnTypes = funcIExpr.getTypes();
-            if (funcIExprReturnTypes.length > returnParamsOfCU.length) {
-                BLangExceptionHelper.throwSemanticError(returnStmt, SemanticErrors.TOO_MANY_ARGUMENTS_TO_RETURN);
-
-            } else if (funcIExprReturnTypes.length < returnParamsOfCU.length) {
-                BLangExceptionHelper.throwSemanticError(returnStmt, SemanticErrors.NOT_ENOUGH_ARGUMENTS_TO_RETURN);
-
-            }
 
             for (int i = 0; i < returnParamsOfCU.length; i++) {
                 BType lhsType = returnParamsOfCU[i].getType();
@@ -1701,61 +1519,16 @@ public class CompletionItemAccumulator implements NodeVisitor {
                 if (isAssignableTo(lhsType, rhsType)) {
                     continue;
                 }
-
-                // TODO Check whether an implicit cast is possible
-                // This requires a tree rewrite. Off the top of my head the results of function or action invocation
-                // should be stored in temporary variables with matching types. Then these temporary variables can be
-                // assigned to left-hand side expressions one by one.
-
-                BLangExceptionHelper.throwSemanticError(returnStmt,
-                        SemanticErrors.CANNOT_USE_TYPE_IN_RETURN_STATEMENT, lhsType, rhsType);
             }
 
             return;
-        }
-
-        if (typesOfReturnExprs.length > returnParamsOfCU.length) {
-            BLangExceptionHelper.throwSemanticError(returnStmt, SemanticErrors.TOO_MANY_ARGUMENTS_TO_RETURN);
-
-        } else if (typesOfReturnExprs.length < returnParamsOfCU.length) {
-            BLangExceptionHelper.throwSemanticError(returnStmt, SemanticErrors.NOT_ENOUGH_ARGUMENTS_TO_RETURN);
-
-        } else {
-            // Now we know that lengths for both arrays are equal.
-            // Let's check their types
-            for (int i = 0; i < returnParamsOfCU.length; i++) {
-                // Except for the first argument in return statement, check for FunctionInvocationExprs which return
-                // multiple values.
-                if (returnArgExprs[i] instanceof FunctionInvocationExpr) {
-                    FunctionInvocationExpr funcIExpr = ((FunctionInvocationExpr) returnArgExprs[i]);
-                    if (funcIExpr.getTypes().length > 1) {
-                        BLangExceptionHelper.throwSemanticError(returnStmt,
-                                SemanticErrors.MULTIPLE_VALUE_IN_SINGLE_VALUE_CONTEXT,
-                                funcIExpr.getCallableUnit().getName());
-                    }
-                }
-
-                BType lhsType = returnParamsOfCU[i].getType();
-                BType rhsType = typesOfReturnExprs[i];
-
-                // Check type assignability
-                AssignabilityResult result = performAssignabilityCheck(lhsType, returnArgExprs[i]);
-                if (result.implicitCastExpr != null) {
-                    returnArgExprs[i] = result.implicitCastExpr;
-                } else if (!result.assignable) {
-                    BLangExceptionHelper.throwSemanticError(returnStmt,
-                            SemanticErrors.CANNOT_USE_TYPE_IN_RETURN_STATEMENT, lhsType, rhsType);
-                }
-            }
         }
     }
 
     @Override
     public void visit(TransformStmt transformStmt) {
+        checkAndSetClosestScope(transformStmt);
         BlockStmt blockStmt = transformStmt.getBody();
-        if (blockStmt.getStatements().length == 0) {
-            BLangExceptionHelper.throwSemanticError(transformStmt, SemanticErrors.TRANSFORM_STATEMENT_NO_BODY);
-        }
         blockStmt.accept(this);
     }
 
@@ -1763,12 +1536,10 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(InstanceCreationExpr instanceCreationExpr) {
+        checkAndSetClosestScope(instanceCreationExpr);
+
         visitSingleValueExpr(instanceCreationExpr);
 
-        if (BTypes.isValueType(instanceCreationExpr.getType())) {
-            BLangExceptionHelper.throwSemanticError(instanceCreationExpr,
-                    SemanticErrors.CANNOT_USE_CREATE_FOR_VALUE_TYPES, instanceCreationExpr.getType());
-        }
         // TODO here the type shouldn't be a value type
 //        Expression expr = instanceCreationExpr.getRExpr();
 //        expr.accept(this);
@@ -1777,21 +1548,19 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(FunctionInvocationExpr funcIExpr) {
+        checkAndSetClosestScope(funcIExpr);
+
         Expression[] exprs = funcIExpr.getArgExprs();
         for (Expression expr : exprs) {
             visitSingleValueExpr(expr);
         }
-
-        linkFunction(funcIExpr);
-
-        //Find the return types of this function invocation expression.
-        BType[] returnParamTypes = funcIExpr.getCallableUnit().getReturnParamTypes();
-        funcIExpr.setTypes(returnParamTypes);
     }
 
     // TODO Duplicate code. fix me
     @Override
     public void visit(ActionInvocationExpr actionIExpr) {
+
+        checkAndSetClosestScope(actionIExpr);
 
         String pkgPath = actionIExpr.getPackagePath();
         String name = actionIExpr.getConnectorName();
@@ -1801,10 +1570,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
         BLangSymbol bLangSymbol = currentScope.resolve(symbolName);
 
         if (bLangSymbol instanceof VariableDef) {
-            if (!(((VariableDef) bLangSymbol).getType() instanceof BallerinaConnectorDef)) {
-                throw BLangExceptionHelper.getSemanticError(actionIExpr.getNodeLocation(),
-                        SemanticErrors.INCORRECT_ACTION_INVOCATION);
-            }
             Expression[] exprs = new Expression[actionIExpr.getArgExprs().length + 1];
             VariableRefExpr variableRefExpr = new VariableRefExpr(actionIExpr.getNodeLocation(), null, symbolName);
             exprs[0] = variableRefExpr;
@@ -1816,9 +1581,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
             actionIExpr.setConnectorName(varDef.getTypeName().getName());
             actionIExpr.setPackageName(varDef.getTypeName().getPackageName());
             actionIExpr.setPackagePath(varDef.getTypeName().getPackagePath());
-        } else if (!(bLangSymbol instanceof BallerinaConnectorDef)) {
-            throw BLangExceptionHelper.getSemanticError(actionIExpr.getNodeLocation(),
-                    SemanticErrors.INVALID_ACTION_INVOCATION);
         }
 
         Expression[] exprs = actionIExpr.getArgExprs();
@@ -1835,112 +1597,106 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(BasicLiteral basicLiteral) {
+        checkAndSetClosestScope(basicLiteral);
         BType bType = BTypes.resolveType(basicLiteral.getTypeName(), currentScope, basicLiteral.getNodeLocation());
         basicLiteral.setType(bType);
     }
 
     @Override
     public void visit(DivideExpr divideExpr) {
+        checkAndSetClosestScope(divideExpr);
         BType binaryExprType = verifyBinaryArithmeticExprType(divideExpr);
         validateBinaryExprTypeForIntFloat(divideExpr, binaryExprType);
     }
 
     @Override
     public void visit(ModExpression modExpr) {
+        checkAndSetClosestScope(modExpr);
         BType binaryExprType = verifyBinaryArithmeticExprType(modExpr);
         validateBinaryExprTypeForIntFloat(modExpr, binaryExprType);
     }
 
     @Override
     public void visit(UnaryExpression unaryExpr) {
+        checkAndSetClosestScope(unaryExpr);
         visitSingleValueExpr(unaryExpr.getRExpr());
         unaryExpr.setType(unaryExpr.getRExpr().getType());
-
-        if (Operator.SUB.equals(unaryExpr.getOperator()) || Operator.ADD.equals(unaryExpr.getOperator())) {
-            if (unaryExpr.getType() != BTypes.typeInt && unaryExpr.getType() != BTypes.typeFloat) {
-                throwInvalidUnaryOpError(unaryExpr);
-            }
-
-        } else if (Operator.NOT.equals(unaryExpr.getOperator())) {
-            if (unaryExpr.getType() != BTypes.typeBoolean) {
-                throwInvalidUnaryOpError(unaryExpr);
-            }
-
-        } else {
-            BLangExceptionHelper.throwSemanticError(unaryExpr, SemanticErrors.UNKNOWN_OPERATOR_IN_UNARY,
-                    unaryExpr.getOperator());
-        }
     }
 
     @Override
     public void visit(AddExpression addExpr) {
-        BType binaryExprType = verifyBinaryArithmeticExprType(addExpr);
-        if (binaryExprType != BTypes.typeInt &&
-                binaryExprType != BTypes.typeFloat &&
-                binaryExprType != BTypes.typeString &&
-                binaryExprType != BTypes.typeXML) {
-            throwInvalidBinaryOpError(addExpr);
-        }
+        checkAndSetClosestScope(addExpr);
     }
 
     @Override
     public void visit(MultExpression multExpr) {
+        checkAndSetClosestScope(multExpr);
         BType binaryExprType = verifyBinaryArithmeticExprType(multExpr);
         validateBinaryExprTypeForIntFloat(multExpr, binaryExprType);
     }
 
     @Override
     public void visit(SubtractExpression subtractExpr) {
+        checkAndSetClosestScope(subtractExpr);
         BType binaryExprType = verifyBinaryArithmeticExprType(subtractExpr);
         validateBinaryExprTypeForIntFloat(subtractExpr, binaryExprType);
     }
 
     @Override
     public void visit(AndExpression andExpr) {
+        checkAndSetClosestScope(andExpr);
         visitBinaryLogicalExpr(andExpr);
     }
 
     @Override
     public void visit(OrExpression orExpr) {
+        checkAndSetClosestScope(orExpr);
         visitBinaryLogicalExpr(orExpr);
     }
 
     @Override
     public void visit(EqualExpression equalExpr) {
+        checkAndSetClosestScope(equalExpr);
         verifyBinaryEqualityExprType(equalExpr);
     }
 
     @Override
     public void visit(NotEqualExpression notEqualExpr) {
+        checkAndSetClosestScope(notEqualExpr);
         verifyBinaryEqualityExprType(notEqualExpr);
     }
 
     @Override
     public void visit(GreaterEqualExpression greaterEqualExpr) {
+        checkAndSetClosestScope(greaterEqualExpr);
         BType compareExprType = verifyBinaryCompareExprType(greaterEqualExpr);
         validateBinaryExprTypeForIntFloat(greaterEqualExpr, compareExprType);
     }
 
     @Override
     public void visit(GreaterThanExpression greaterThanExpr) {
+        checkAndSetClosestScope(greaterThanExpr);
         BType compareExprType = verifyBinaryCompareExprType(greaterThanExpr);
         validateBinaryExprTypeForIntFloat(greaterThanExpr, compareExprType);
     }
 
     @Override
     public void visit(LessEqualExpression lessEqualExpr) {
+        checkAndSetClosestScope(lessEqualExpr);
         BType compareExprType = verifyBinaryCompareExprType(lessEqualExpr);
         validateBinaryExprTypeForIntFloat(lessEqualExpr, compareExprType);
     }
 
     @Override
     public void visit(LessThanExpression lessThanExpr) {
+        checkAndSetClosestScope(lessThanExpr);
         BType compareExprType = verifyBinaryCompareExprType(lessThanExpr);
         validateBinaryExprTypeForIntFloat(lessThanExpr, compareExprType);
     }
 
     @Override
     public void visit(ArrayMapAccessExpr arrayMapAccessExpr) {
+        checkAndSetClosestScope(arrayMapAccessExpr);
         // Here we assume that rExpr of arrays access expression is always a variable reference expression.
         // This according to the grammar
         VariableRefExpr arrayMapVarRefExpr = (VariableRefExpr) arrayMapAccessExpr.getRExpr();
@@ -1951,6 +1707,7 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(FieldAccessExpr fieldAccessExpr) {
+        checkAndSetClosestScope(fieldAccessExpr);
         visitField(fieldAccessExpr, currentScope);
     }
 
@@ -1961,21 +1718,25 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(RefTypeInitExpr refTypeInitExpr) {
+        checkAndSetClosestScope(refTypeInitExpr);
         visitMapJsonInitExpr(refTypeInitExpr);
     }
 
     @Override
     public void visit(MapInitExpr mapInitExpr) {
+        checkAndSetClosestScope(mapInitExpr);
         visitMapJsonInitExpr(mapInitExpr);
     }
 
     @Override
     public void visit(JSONInitExpr jsonInitExpr) {
+        checkAndSetClosestScope(jsonInitExpr);
         visitMapJsonInitExpr(jsonInitExpr);
     }
 
     @Override
     public void visit(JSONArrayInitExpr jsonArrayInitExpr) {
+        checkAndSetClosestScope(jsonArrayInitExpr);
         BType inheritedType = jsonArrayInitExpr.getInheritedType();
         jsonArrayInitExpr.setType(inheritedType);
 
@@ -1995,10 +1756,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
                 TypeCastExpression typeCastExpr = checkWideningPossible(BTypes.typeJSON, argExpr);
                 if (typeCastExpr != null) {
                     argExprs[i] = typeCastExpr;
-                } else {
-                    BLangExceptionHelper.throwSemanticError(argExpr,
-                            SemanticErrors.INCOMPATIBLE_TYPES_CANNOT_CONVERT, argExprType.getSymbolName(),
-                            inheritedType.getSymbolName());
                 }
                 continue;
             }
@@ -2008,20 +1765,14 @@ public class CompletionItemAccumulator implements NodeVisitor {
             }
 
             TypeCastExpression typeCastExpr = checkWideningPossible(BTypes.typeJSON, argExpr);
-            if (typeCastExpr == null) {
-                BLangExceptionHelper.throwSemanticError(jsonArrayInitExpr,
-                        SemanticErrors.INCOMPATIBLE_TYPES_CANNOT_CONVERT, argExpr.getType(), BTypes.typeJSON);
-            }
             argExprs[i] = typeCastExpr;
         }
     }
 
     @Override
     public void visit(ConnectorInitExpr connectorInitExpr) {
+        checkAndSetClosestScope(connectorInitExpr);
         BType inheritedType = connectorInitExpr.getInheritedType();
-        if (!(inheritedType instanceof BallerinaConnectorDef)) {
-            BLangExceptionHelper.throwSemanticError(connectorInitExpr, SemanticErrors.CONNECTOR_INIT_NOT_ALLOWED);
-        }
         connectorInitExpr.setType(inheritedType);
 
         for (Expression argExpr : connectorInitExpr.getArgExprs()) {
@@ -2034,21 +1785,12 @@ public class CompletionItemAccumulator implements NodeVisitor {
             SimpleTypeName simpleTypeName = parameterDefs[i].getTypeName();
             BType paramType = BTypes.resolveType(simpleTypeName, currentScope, connectorInitExpr.getNodeLocation());
             parameterDefs[i].setType(paramType);
-
-            Expression argExpr = argExprs[i];
-            if (parameterDefs[i].getType() != argExpr.getType()) {
-                BLangExceptionHelper.throwSemanticError(connectorInitExpr, SemanticErrors.INCOMPATIBLE_TYPES,
-                        parameterDefs[i].getType(), argExpr.getType());
-            }
         }
     }
 
     @Override
     public void visit(ArrayInitExpr arrayInitExpr) {
-        if (!(arrayInitExpr.getInheritedType() instanceof BArrayType)) {
-            BLangExceptionHelper.throwSemanticError(arrayInitExpr, SemanticErrors.ARRAY_INIT_NOT_ALLOWED_HERE);
-        }
-
+        checkAndSetClosestScope(arrayInitExpr);
         visitArrayInitExpr(arrayInitExpr);
     }
 
@@ -2070,13 +1812,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
             }
 
             visitSingleValueExpr(argExpr);
-            AssignabilityResult result = performAssignabilityCheck(expectedElementType, argExpr);
-            if (result.implicitCastExpr != null) {
-                argExprs[i] = result.implicitCastExpr;
-            } else if (!result.assignable) {
-                BLangExceptionHelper.throwSemanticError(argExpr, SemanticErrors.INCOMPATIBLE_ASSIGNMENT,
-                        argExpr.getType(), expectedElementType);
-            }
         }
     }
 
@@ -2085,6 +1820,7 @@ public class CompletionItemAccumulator implements NodeVisitor {
      */
     @Override
     public void visit(StructInitExpr structInitExpr) {
+        checkAndSetClosestScope(structInitExpr);
         BType inheritedType = structInitExpr.getInheritedType();
         structInitExpr.setType(inheritedType);
         Expression[] argExprs = structInitExpr.getArgExprs();
@@ -2096,25 +1832,11 @@ public class CompletionItemAccumulator implements NodeVisitor {
         for (Expression argExpr : argExprs) {
             KeyValueExpr keyValueExpr = (KeyValueExpr) argExpr;
             Expression keyExpr = keyValueExpr.getKeyExpr();
-            if (!(keyExpr instanceof VariableRefExpr)) {
-                BLangExceptionHelper.throwSemanticError(keyExpr, SemanticErrors.INVALID_FIELD_NAME_STRUCT_INIT);
-                return;
-            }
 
             VariableRefExpr varRefExpr = (VariableRefExpr) keyExpr;
             //TODO fix properly package conflict
             BLangSymbol varDefSymbol = structDef.resolveMembers(new SymbolName(varRefExpr.getSymbolName().getName(),
                     structDef.getPackagePath()));
-
-            if (varDefSymbol == null) {
-                BLangExceptionHelper.throwSemanticError(keyExpr, SemanticErrors.UNKNOWN_FIELD_IN_STRUCT,
-                        varRefExpr.getVarName(), structDef.getName());
-            }
-
-            if (!(varDefSymbol instanceof VariableDef)) {
-                BLangExceptionHelper.throwSemanticError(varRefExpr, SemanticErrors.INCOMPATIBLE_TYPES_UNKNOWN_FOUND,
-                        varDefSymbol.getSymbolName());
-            }
 
             VariableDef varDef = (VariableDef) varDefSymbol;
             varRefExpr.setVariableDef(varDef);
@@ -2127,16 +1849,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
             }
 
             valueExpr.accept(this);
-
-            // Check whether the right-hand type can be assigned to the left-hand type.
-            AssignabilityResult result = performAssignabilityCheck(structFieldType, valueExpr);
-            if (result.implicitCastExpr != null) {
-                valueExpr = result.implicitCastExpr;
-                keyValueExpr.setValueExpr(valueExpr);
-            } else if (!result.assignable) {
-                BLangExceptionHelper.throwSemanticError(keyExpr, SemanticErrors.INCOMPATIBLE_TYPES,
-                        varDef.getType(), valueExpr.getType());
-            }
         }
     }
 
@@ -2147,33 +1859,17 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     @Override
     public void visit(VariableRefExpr varRefExpr) {
-        // Resolve package path from the give package name
-        if (varRefExpr.getPkgName() != null && varRefExpr.getPkgPath() == null) {
-            throw BLangExceptionHelper.getSemanticError(varRefExpr.getNodeLocation(),
-                    SemanticErrors.UNDEFINED_PACKAGE_NAME, varRefExpr.getPkgName(),
-                    varRefExpr.getPkgName() + ":" + varRefExpr.getVarName());
-        }
-
+        checkAndSetClosestScope(varRefExpr);
         SymbolName symbolName = varRefExpr.getSymbolName();
 
         // Check whether this symName is declared
         BLangSymbol varDefSymbol = currentScope.resolve(symbolName);
-
-        if (varDefSymbol == null) {
-            BLangExceptionHelper.throwSemanticError(varRefExpr, SemanticErrors.UNDEFINED_SYMBOL,
-                    symbolName);
-        }
-
-        if (!(varDefSymbol instanceof VariableDef)) {
-            BLangExceptionHelper.throwSemanticError(varRefExpr, SemanticErrors.INCOMPATIBLE_TYPES_UNKNOWN_FOUND,
-                    symbolName);
-        }
-
         varRefExpr.setVariableDef((VariableDef) varDefSymbol);
     }
 
     @Override
     public void visit(TypeCastExpression typeCastExpr) {
+        checkAndSetClosestScope(typeCastExpr);
         // Evaluate the expression and set the type
         boolean isMultiReturn = typeCastExpr.isMultiReturnExpr();
         Expression rExpr = typeCastExpr.getRExpr();
@@ -2184,12 +1880,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
         if (targetType == null) {
             targetType = BTypes.resolveType(typeCastExpr.getTypeName(), currentScope, typeCastExpr.getNodeLocation());
             typeCastExpr.setType(targetType);
-        }
-
-        // casting a null literal is not supported.
-        if (rExpr instanceof NullLiteral) {
-            BLangExceptionHelper.throwSemanticError(typeCastExpr, SemanticErrors.INCOMPATIBLE_TYPES_CANNOT_CAST,
-                    sourceType, targetType);
         }
 
         // Find the eval function from explicit casting lattice
@@ -2223,25 +1913,18 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
             if (isUnsafeCastPossible) {
                 typeCastExpr.setOpcode(InstructionCodes.CHECKCAST);
-            } else {
-                // TODO: print a suggestion
-                BLangExceptionHelper.throwSemanticError(typeCastExpr, SemanticErrors.INCOMPATIBLE_TYPES_CANNOT_CAST,
-                        sourceType, targetType);
             }
         }
 
         // If this is a multi-value return conversion expression, set the return types.
         BLangSymbol error = currentScope.resolve(new SymbolName(BALLERINA_CAST_ERROR, ERRORS_PACKAGE));
-        if (error == null || !(error instanceof StructDef)) {
-            BLangExceptionHelper.throwSemanticError(typeCastExpr,
-                    SemanticErrors.CANNOT_RESOLVE_STRUCT, ERRORS_PACKAGE, BALLERINA_CAST_ERROR);
-        }
         typeCastExpr.setTypes(new BType[]{targetType, (BType) error});
     }
 
 
     @Override
     public void visit(TypeConversionExpr typeConversionExpr) {
+        checkAndSetClosestScope(typeConversionExpr);
         // Evaluate the expression and set the type
         boolean isMultiReturn = typeConversionExpr.isMultiReturnExpr();
         Expression rExpr = typeConversionExpr.getRExpr();
@@ -2252,12 +1935,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
         if (targetType == null) {
             targetType = BTypes.resolveType(typeConversionExpr.getTypeName(), currentScope, null);
             typeConversionExpr.setType(targetType);
-        }
-
-        // casting a null literal is not supported.
-        if (rExpr instanceof NullLiteral) {
-            BLangExceptionHelper.throwSemanticError(typeConversionExpr,
-                    SemanticErrors.INCOMPATIBLE_TYPES_CANNOT_CONVERT, sourceType, targetType);
         }
 
         // Find the eval function from the conversion lattice
@@ -2282,23 +1959,16 @@ public class CompletionItemAccumulator implements NodeVisitor {
                 typeConversionExpr.setTypes(new BType[]{targetType});
                 return;
             }
-        } else {
-            // TODO: print a suggestion
-            BLangExceptionHelper.throwSemanticError(typeConversionExpr,
-                    SemanticErrors.INCOMPATIBLE_TYPES_CANNOT_CONVERT, sourceType, targetType);
         }
 
         // If this is a multi-value return conversion expression, set the return types.
         BLangSymbol error = currentScope.resolve(new SymbolName(BALLERINA_CONVERSION_ERROR, ERRORS_PACKAGE));
-        if (error == null || !(error instanceof StructDef)) {
-            BLangExceptionHelper.throwSemanticError(typeConversionExpr,
-                    SemanticErrors.CANNOT_RESOLVE_STRUCT, ERRORS_PACKAGE, BALLERINA_CAST_ERROR);
-        }
         typeConversionExpr.setTypes(new BType[]{targetType, (BType) error});
     }
 
     @Override
     public void visit(NullLiteral nullLiteral) {
+        checkAndSetClosestScope(nullLiteral);
         nullLiteral.setType(BTypes.typeNull);
     }
 
@@ -2321,10 +1991,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
             // Check the type of the index expression
             for (Expression indexExpr : arrayMapAccessExpr.getIndexExprs()) {
                 visitSingleValueExpr(indexExpr);
-                if (indexExpr.getType() != BTypes.typeInt) {
-                    BLangExceptionHelper.throwSemanticError(arrayMapAccessExpr, SemanticErrors.NON_INTEGER_ARRAY_INDEX,
-                            indexExpr.getType());
-                }
             }
             // Set type of the arrays access expression
             BType expectedType = arrayMapVarRefExpr.getType();
@@ -2337,17 +2003,10 @@ public class CompletionItemAccumulator implements NodeVisitor {
             // Check the type of the index expression
             Expression indexExpr = arrayMapAccessExpr.getIndexExprs()[0];
             visitSingleValueExpr(indexExpr);
-            if (indexExpr.getType() != BTypes.typeString) {
-                BLangExceptionHelper.throwSemanticError(arrayMapAccessExpr, SemanticErrors.NON_STRING_MAP_INDEX,
-                        indexExpr.getType());
-            }
             // Set type of the map access expression
             BMapType typeOfMap = (BMapType) arrayMapVarRefExpr.getType();
             arrayMapAccessExpr.setType(typeOfMap.getElementType());
 
-        } else {
-            BLangExceptionHelper.throwSemanticError(arrayMapAccessExpr,
-                    SemanticErrors.INVALID_OPERATION_NOT_SUPPORT_INDEXING, arrayMapVarRefExpr.getType());
         }
     }
 
@@ -2358,19 +2017,10 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     private void visitSingleValueExpr(Expression expr) {
         expr.accept(this);
-        if (expr.isMultiReturnExpr()) {
-            FunctionInvocationExpr funcIExpr = (FunctionInvocationExpr) expr;
-            String nameWithPkgName = (funcIExpr.getPackageName() != null) ? funcIExpr.getPackageName()
-                    + ":" + funcIExpr.getName() : funcIExpr.getName();
-            BLangExceptionHelper.throwSemanticError(expr, SemanticErrors.MULTIPLE_VALUE_IN_SINGLE_VALUE_CONTEXT,
-                    nameWithPkgName);
-        }
     }
 
     private void validateBinaryExprTypeForIntFloat(BinaryExpression binaryExpr, BType binaryExprType) {
-        if (binaryExprType != BTypes.typeInt && binaryExprType != BTypes.typeFloat) {
-            throwInvalidBinaryOpError(binaryExpr);
-        }
+
     }
 
     private BType verifyBinaryArithmeticExprType(BinaryArithmeticExpression binaryArithmeticExpr) {
@@ -2389,34 +2039,8 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
     private void verifyBinaryEqualityExprType(BinaryExpression binaryExpr) {
         visitBinaryExpr(binaryExpr);
-        BType rType = binaryExpr.getRExpr().getType();
-        BType lType = binaryExpr.getLExpr().getType();
-        BType type;
-
-        if (rType == BTypes.typeNull) {
-            if (BTypes.isValueType(lType)) {
-                BLangExceptionHelper.throwSemanticError(binaryExpr,
-                        SemanticErrors.INVALID_OPERATION_INCOMPATIBLE_TYPES, lType, rType);
-            }
-            type = rType;
-        } else if (lType == BTypes.typeNull) {
-            if (BTypes.isValueType(rType)) {
-                BLangExceptionHelper.throwSemanticError(binaryExpr,
-                        SemanticErrors.INVALID_OPERATION_INCOMPATIBLE_TYPES, lType, rType);
-            }
-            type = lType;
-        } else {
-            type = verifyBinaryExprType(binaryExpr);
-        }
 
         binaryExpr.setType(BTypes.typeBoolean);
-        if (type != BTypes.typeInt &&
-                type != BTypes.typeFloat &&
-                type != BTypes.typeBoolean &&
-                type != BTypes.typeString &&
-                type != BTypes.typeNull) {
-            throwInvalidBinaryOpError(binaryExpr);
-        }
     }
 
     private BType verifyBinaryExprType(BinaryExpression binaryExpr) {
@@ -2452,7 +2076,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
                     }
                 }
             }
-            throwInvalidBinaryOpError(binaryExpr);
         }
         return rType;
     }
@@ -2465,8 +2088,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
         if (lExpr.getType() == BTypes.typeBoolean && rExpr.getType() == BTypes.typeBoolean) {
             expr.setType(BTypes.typeBoolean);
-        } else {
-            throwInvalidBinaryOpError(expr);
         }
     }
 
@@ -2481,20 +2102,11 @@ public class CompletionItemAccumulator implements NodeVisitor {
     }
 
     private void checkForConstAssignment(AssignStmt assignStmt, Expression lExpr) {
-        if (lExpr instanceof VariableRefExpr &&
-                ((VariableRefExpr) lExpr).getMemoryLocation() instanceof ConstantLocation) {
-            BLangExceptionHelper.throwSemanticError(assignStmt, SemanticErrors.CANNOT_ASSIGN_VALUE_CONSTANT,
-                    ((VariableRefExpr) lExpr).getSymbolName());
-        }
     }
 
     private void checkForMultiAssignmentErrors(AssignStmt assignStmt, Expression[] lExprs,
                                                CallableUnitInvocationExpr rExpr) {
         BType[] returnTypes = rExpr.getTypes();
-        if (lExprs.length != returnTypes.length) {
-            BLangExceptionHelper.throwSemanticError(assignStmt,
-                    SemanticErrors.ASSIGNMENT_COUNT_MISMATCH, lExprs.length, returnTypes.length);
-        }
 
         //cannot assign string to b (type int) in multiple assignment
 
@@ -2512,53 +2124,15 @@ public class CompletionItemAccumulator implements NodeVisitor {
             if (isAssignableTo(lhsType, rhsType)) {
                 continue;
             }
-
-            // TODO Check whether an implicit cast is possible
-            // This requires a tree rewrite. Off the top of my head the results of function or action invocation
-            // should be stored in temporary variables with matching types. Then these temporary variables can be
-            // assigned to left-hand side expressions one by one.
-
-            BLangExceptionHelper.throwSemanticError(assignStmt,
-                    SemanticErrors.CANNOT_ASSIGN_IN_MULTIPLE_ASSIGNMENT, rhsType, varName, lExpr.getType());
-        }
-    }
-
-    private void checkForMultiValuedCastingErrors(AssignStmt assignStmt, Expression[] lExprs,
-                                                  ExecutableMultiReturnExpr rExpr) {
-        BType[] returnTypes = rExpr.getTypes();
-        if (lExprs.length != returnTypes.length) {
-            BLangExceptionHelper.throwSemanticError(assignStmt, SemanticErrors.ASSIGNMENT_COUNT_MISMATCH,
-                    lExprs.length, returnTypes.length);
-        }
-
-        for (int i = 0; i < lExprs.length; i++) {
-            Expression lExpr = lExprs[i];
-            BType returnType = returnTypes[i];
-            String varName = getVarNameFromExpression(lExpr);
-            if ("_".equals(varName)) {
-                continue;
-            }
-            if ((lExpr.getType() != BTypes.typeAny) && (!lExpr.getType().equals(returnType))) {
-                BLangExceptionHelper.throwSemanticError(assignStmt,
-                        SemanticErrors.INCOMPATIBLE_TYPES_IN_MULTIPLE_ASSIGNMENT, varName, returnType, lExpr.getType());
-            }
         }
     }
 
     private void visitLExprsOfAssignment(AssignStmt assignStmt, Expression[] lExprs) {
-        // This set data structure is used to check for repeated variable names in the assignment statement
-        Set<String> varNameSet = new HashSet<>();
 
-        int ignoredCount = 0;
         for (Expression lExpr : lExprs) {
             String varName = getVarNameFromExpression(lExpr);
             if (varName.equals("_")) {
-                ignoredCount++;
                 continue;
-            }
-            if (!varNameSet.add(varName)) {
-                BLangExceptionHelper.throwSemanticError(assignStmt,
-                        SemanticErrors.VAR_IS_REPEATED_ON_LEFT_SIDE_ASSIGNMENT, varName);
             }
 
             // First mark all left side ArrayMapAccessExpr. This is to skip some processing which is applicable only
@@ -2575,123 +2149,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
             // Check whether someone is trying to change the values of a constant
             checkForConstAssignment(assignStmt, lExpr);
         }
-        if (ignoredCount == lExprs.length) {
-            throw new SemanticException(BLangExceptionHelper.constructSemanticError(
-                    assignStmt.getNodeLocation(), SemanticErrors.IGNORED_ASSIGNMENT));
-        }
-    }
-
-    private void linkFunction(FunctionInvocationExpr funcIExpr) {
-        String pkgPath = funcIExpr.getPackagePath();
-
-        Expression[] exprs = funcIExpr.getArgExprs();
-        BType[] paramTypes = new BType[exprs.length];
-        for (int i = 0; i < exprs.length; i++) {
-            paramTypes[i] = exprs[i].getType();
-        }
-
-        FunctionSymbolName symbolName = LangModelUtils.getFuncSymNameWithParams(funcIExpr.getName(),
-                pkgPath, paramTypes);
-        BLangSymbol functionSymbol = currentScope.resolve(symbolName);
-
-        functionSymbol = matchAndUpdateFunctionArguments(funcIExpr, symbolName, functionSymbol);
-
-        if (functionSymbol == null) {
-            String funcName = (funcIExpr.getPackageName() != null) ? funcIExpr.getPackageName() + ":" +
-                    funcIExpr.getName() : funcIExpr.getName();
-            BLangExceptionHelper.throwSemanticError(funcIExpr, SemanticErrors.UNDEFINED_FUNCTION, funcName);
-            return;
-        }
-
-        Function function;
-        if (functionSymbol.isNative()) {
-            functionSymbol = ((BallerinaFunction) functionSymbol).getNativeFunction();
-            NativeUnit nativeUnit = ((NativeUnitProxy) functionSymbol).load();
-            // Loading return parameter types of this native function
-            SimpleTypeName[] returnParamTypeNames = nativeUnit.getReturnParamTypeNames();
-            BType[] returnTypes = new BType[returnParamTypeNames.length];
-            for (int i = 0; i < returnParamTypeNames.length; i++) {
-                SimpleTypeName typeName = returnParamTypeNames[i];
-                BType bType = BTypes.resolveType(typeName, currentScope, funcIExpr.getNodeLocation());
-                returnTypes[i] = bType;
-            }
-
-            if (!(nativeUnit instanceof Function)) {
-                BLangExceptionHelper.throwSemanticError(funcIExpr, SemanticErrors.INCOMPATIBLE_TYPES_UNKNOWN_FOUND,
-                        symbolName);
-            }
-            function = (Function) nativeUnit;
-            function.setReturnParamTypes(returnTypes);
-
-        } else {
-            if (!(functionSymbol instanceof Function)) {
-                BLangExceptionHelper.throwSemanticError(funcIExpr, SemanticErrors.INCOMPATIBLE_TYPES_UNKNOWN_FOUND,
-                        symbolName);
-                return;
-            }
-            function = (Function) functionSymbol;
-        }
-
-        // Link the function with the function invocation expression
-        funcIExpr.setCallableUnit(function);
-    }
-
-    /**
-     * Helper method to match the function with invocation (check whether parameters map, do cast if applicable).
-     *
-     * @param funcIExpr      invocation expression
-     * @param symbolName     function symbol name
-     * @param functionSymbol matching function
-     * @return functionSymbol matching function
-     */
-    private BLangSymbol matchAndUpdateFunctionArguments(FunctionInvocationExpr funcIExpr,
-                                                        FunctionSymbolName symbolName, BLangSymbol functionSymbol) {
-        if (functionSymbol == null) {
-            return null;
-        }
-
-        Expression[] argExprs = funcIExpr.getArgExprs();
-        Expression[] updatedArgExprs = new Expression[argExprs.length];
-
-        //if (functionSymbol.getSymbolName() instanceof FunctionSymbolName) {
-        //    FunctionSymbolName funcSymName = (FunctionSymbolName) functionSymbol.getSymbolName();
-        //    if (!funcSymName.isNameAndParamCountMatch(symbolName)) {
-        //        return null;
-        //    }
-        //}
-
-        boolean implicitCastPossible = true;
-
-        for (int i = 0; i < argExprs.length; i++) {
-            Expression argExpr = argExprs[i];
-            updatedArgExprs[i] = argExpr;
-            BType lhsType;
-            if (functionSymbol instanceof NativeUnitProxy) {
-                NativeUnit nativeUnit = ((NativeUnitProxy) functionSymbol).load();
-                SimpleTypeName simpleTypeName = nativeUnit.getArgumentTypeNames()[i];
-                lhsType = BTypes.resolveType(simpleTypeName, currentScope, funcIExpr.getNodeLocation());
-            } else {
-                lhsType = ((Function) functionSymbol).getParameterDefs()[i].getType();
-            }
-
-            AssignabilityResult result = performAssignabilityCheck(lhsType, argExpr);
-            if (result.implicitCastExpr != null) {
-                updatedArgExprs[i] = result.implicitCastExpr;
-            } else if (!result.assignable) {
-                // TODO do we need to throw an error here?
-                implicitCastPossible = false;
-                break;
-            }
-        }
-
-        if (!implicitCastPossible) {
-            return null;
-        }
-
-        for (int i = 0; i < updatedArgExprs.length; i++) {
-            funcIExpr.getArgExprs()[i] = updatedArgExprs[i];
-        }
-        return functionSymbol;
     }
 
     private void linkAction(ActionInvocationExpr actionIExpr) {
@@ -2701,13 +2158,7 @@ public class CompletionItemAccumulator implements NodeVisitor {
         // First look for the connectors
         SymbolName connectorSymbolName = new SymbolName(connectorName, pkgPath);
         BLangSymbol connectorSymbol = currentScope.resolve(connectorSymbolName);
-        if (connectorSymbol == null) {
-            String connectorWithPkgName = (actionIExpr.getPackageName() != null) ? actionIExpr.getPackageName() +
-                    ":" + actionIExpr.getConnectorName() : actionIExpr.getConnectorName();
-            BLangExceptionHelper.throwSemanticError(actionIExpr, SemanticErrors.UNDEFINED_CONNECTOR,
-                    connectorWithPkgName);
-            return;
-        }
+
 
         //Expression[] exprs = actionIExpr.getArgExprs();
         //BType[] paramTypes = new BType[exprs.length];
@@ -2723,18 +2174,10 @@ public class CompletionItemAccumulator implements NodeVisitor {
         BLangSymbol actionSymbol = null;
         if (connectorSymbol instanceof BallerinaConnectorDef) {
             actionSymbol = ((BallerinaConnectorDef) connectorSymbol).resolveMembers(actionSymbolName);
-        } else {
-            BLangExceptionHelper.throwSemanticError(actionIExpr, SemanticErrors.INCOMPATIBLE_TYPES_CONNECTOR_EXPECTED,
-                    connectorSymbolName);
         }
 
         if ((actionSymbol instanceof BallerinaAction) && (actionSymbol.isNative())) {
             actionSymbol = ((BallerinaAction) actionSymbol).getNativeAction();
-        }
-
-        if (actionSymbol == null) {
-            BLangExceptionHelper.throwSemanticError(actionIExpr, SemanticErrors.UNDEFINED_ACTION,
-                    actionIExpr.getName(), connectorSymbol.getSymbolName());
         }
 
         // Load native action
@@ -2750,18 +2193,11 @@ public class CompletionItemAccumulator implements NodeVisitor {
                 returnTypes[i] = bType;
             }
 
-            if (!(nativeUnit instanceof Action)) {
-                BLangExceptionHelper.throwSemanticError(actionIExpr, SemanticErrors.INCOMPATIBLE_TYPES_UNKNOWN_FOUND,
-                        actionSymbolName);
-            }
             action = (Action) nativeUnit;
             action.setReturnParamTypes(returnTypes);
 
         } else if (actionSymbol instanceof Action) {
             action = (Action) actionSymbol;
-        } else {
-            BLangExceptionHelper.throwSemanticError(actionIExpr, SemanticErrors.INCOMPATIBLE_TYPES_UNKNOWN_FOUND,
-                    actionSymbolName);
         }
 
         // Link the action with the action invocation expression
@@ -2780,33 +2216,8 @@ public class CompletionItemAccumulator implements NodeVisitor {
         workerInvocationStmt.setCallableUnit(worker);
     }
 
-    private void throwInvalidBinaryOpError(BinaryExpression binaryExpr) {
-        BType lExprType = binaryExpr.getLExpr().getType();
-        BType rExprType = binaryExpr.getRExpr().getType();
-
-        if (lExprType == rExprType) {
-            BLangExceptionHelper.throwSemanticError(binaryExpr,
-                    SemanticErrors.INVALID_OPERATION_OPERATOR_NOT_DEFINED, binaryExpr.getOperator(), lExprType);
-        } else {
-            BLangExceptionHelper.throwSemanticError(binaryExpr,
-                    SemanticErrors.INVALID_OPERATION_INCOMPATIBLE_TYPES, lExprType, rExprType);
-        }
-    }
-
-    private void throwInvalidUnaryOpError(UnaryExpression unaryExpr) {
-        BType rExprType = unaryExpr.getRExpr().getType();
-        BLangExceptionHelper.throwSemanticError(unaryExpr,
-                SemanticErrors.INVALID_OPERATION_OPERATOR_NOT_DEFINED, unaryExpr.getOperator(), rExprType);
-    }
-
     private void visitField(FieldAccessExpr fieldAccessExpr, SymbolScope enclosingScope) {
         ReferenceExpr varRefExpr = (ReferenceExpr) fieldAccessExpr.getVarRef();
-        // Resolve package path from the give package name
-        if (varRefExpr.getPkgName() != null && varRefExpr.getPkgPath() == null) {
-            throw BLangExceptionHelper.getSemanticError(varRefExpr.getNodeLocation(),
-                    SemanticErrors.UNDEFINED_PACKAGE_NAME, varRefExpr.getPkgName(),
-                    varRefExpr.getPkgName() + ":" + varRefExpr.getVarName());
-        }
 
         BLangSymbol fieldSymbol;
         SymbolName symbolName = new SymbolName(varRefExpr.getVarName(), varRefExpr.getPkgPath());
@@ -2818,21 +2229,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
             fieldSymbol = enclosingScope.resolve(symbolName);
         }
 
-        if (fieldSymbol == null) {
-            if (enclosingScope instanceof StructDef) {
-                BLangExceptionHelper.throwSemanticError(fieldAccessExpr, SemanticErrors.UNKNOWN_FIELD_IN_STRUCT,
-                        symbolName.getName(), ((StructDef) enclosingScope).getName());
-            } else {
-                BLangExceptionHelper.throwSemanticError(fieldAccessExpr, SemanticErrors.UNDEFINED_SYMBOL,
-                        symbolName.getName());
-            }
-        }
-
-        // Set expression type
-        if (!(fieldSymbol instanceof VariableDef)) {
-            BLangExceptionHelper.throwSemanticError(varRefExpr, SemanticErrors.INCOMPATIBLE_TYPES_UNKNOWN_FOUND,
-                    symbolName);
-        }
         VariableDef varDef = (VariableDef) fieldSymbol;
         BType exprType = varDef.getType();
 
@@ -2869,9 +2265,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
             visitMapAccessExpr(fieldAccessExpr, varRefExpr, fieldExpr, enclosingScope);
         } else if (exprType instanceof BArrayType) {
             visitArrayAccessExpr(fieldAccessExpr, varRefExpr, fieldExpr, exprType, enclosingScope);
-        } else {
-            BLangExceptionHelper.throwSemanticError(fieldAccessExpr,
-                    SemanticErrors.INVALID_OPERATION_NOT_SUPPORT_INDEXING, exprType);
         }
     }
 
@@ -2891,10 +2284,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
                     varName);
             fieldExpr.setVarRef(varRef);
             fieldExpr.setIsStaticField(true);
-        }
-
-        if (!fieldExpr.isStaticField()) {
-            BLangExceptionHelper.throwSemanticError(fieldVar, SemanticErrors.DYNAMIC_KEYS_NOT_SUPPORTED_FOR_STRUCT);
         }
 
         visitField(fieldExpr, ((StructDef) exprType));
@@ -2919,10 +2308,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
         } else {
             Expression varRefExpr = fieldExpr.getVarRef();
             varRefExpr.accept(this);
-            if (varRefExpr.getType() != BTypes.typeInt && varRefExpr.getType() != BTypes.typeString) {
-                BLangExceptionHelper.throwSemanticError(varRefExpr,
-                        SemanticErrors.INCOMPATIBLE_TYPES, "string or int", varRefExpr.getType());
-            }
 
             currentFieldExpr = new JSONFieldAccessExpr(fieldExpr.getNodeLocation(), fieldExpr.getWhiteSpaceDescriptor(),
                     varRefExpr, nextFieldExpr);
@@ -2943,14 +2328,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
     private void visitMapAccessExpr(FieldAccessExpr parentExpr, ReferenceExpr varRefExpr, FieldAccessExpr fieldExpr,
                                     SymbolScope enclosingScope) {
         Expression fieldVar = fieldExpr.getVarRef();
-
-        // map access can only be at the end of a field access expression chain. Because maps are of any-type. Hence
-        // cannot get a child field of any-type, without casting.
-        // TODO: Improve this once type-bound maps are implemented
-        if (fieldExpr.getFieldExpr() != null) {
-            BLangExceptionHelper.throwSemanticError(fieldExpr, SemanticErrors.INDEXING_NOT_SUPPORTED_FOR_MAP_ELEMENT,
-                    BTypes.typeAny);
-        }
 
         Expression indexExpr[] = new Expression[]{fieldVar};
 
@@ -2985,16 +2362,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
         if (fieldExpr.getVarRef() instanceof BasicLiteral) {
             String value = ((BasicLiteral) fieldExpr.getVarRef()).getBValue().stringValue();
             if (value.equals("length")) {
-
-                if (parentExpr.isLHSExpr()) {
-                    //cannot assign a value to array length
-                    BLangExceptionHelper.throwSemanticError(fieldExpr, SemanticErrors.CANNOT_ASSIGN_VALUE_ARRAY_LENGTH);
-                }
-
-                if (fieldExpr.getFieldExpr() != null) {
-                    BLangExceptionHelper.throwSemanticError(fieldExpr,
-                            SemanticErrors.INVALID_OPERATION_NOT_SUPPORT_INDEXING, BTypes.typeInt);
-                }
 
                 ArrayLengthExpression arrayLengthExpr = new ArrayLengthExpression(
                         parentExpr.getNodeLocation(), null, varRefExpr);
@@ -3083,17 +2450,8 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
             BLangSymbol functionSymbol = currentScope.resolve(symbolName);
 
-            if (!function.isNative() && functionSymbol != null) {
-                BLangExceptionHelper.throwSemanticError(function,
-                        SemanticErrors.REDECLARED_SYMBOL, function.getName());
-            }
-
             if (function.isNative() && functionSymbol == null) {
                 functionSymbol = nativeScope.resolve(symbolName);
-                if (functionSymbol == null) {
-                    BLangExceptionHelper.throwSemanticError(function,
-                            SemanticErrors.UNDEFINED_FUNCTION, function.getName());
-                }
                 if (function instanceof BallerinaFunction) {
                     ((BallerinaFunction) function).setNativeFunction((NativeUnitProxy) functionSymbol);
                 }
@@ -3120,11 +2478,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
 
             // Define ConnectorDef Symbol in the package scope..
             SymbolName connectorSymbolName = new SymbolName(connectorName, connectorDef.getPackagePath());
-            BLangSymbol connectorSymbol = currentScope.resolve(connectorSymbolName);
-            if (connectorSymbol != null) {
-                BLangExceptionHelper.throwSemanticError(connectorDef,
-                        SemanticErrors.REDECLARED_SYMBOL, connectorName);
-            }
             currentScope.define(connectorSymbolName, connectorDef);
 
             BLangSymbol actionSymbol;
@@ -3184,21 +2537,11 @@ public class CompletionItemAccumulator implements NodeVisitor {
         SymbolName symbolName = new SymbolName("");
         action.setSymbolName(symbolName);
 
-        BLangSymbol actionSymbol = currentScope.resolve(symbolName);
-        if (actionSymbol != null) {
-            BLangExceptionHelper.throwSemanticError(action, SemanticErrors.REDECLARED_SYMBOL, action.getName());
-        }
         currentScope.define(symbolName, action);
 
         if (action.isNative()) {
             SymbolName nativeActionSymName = new SymbolName("");
             BLangSymbol nativeAction = nativeScope.resolve(nativeActionSymName);
-
-            if (nativeAction == null || !(nativeAction instanceof NativeUnitProxy)) {
-                BLangExceptionHelper.throwSemanticError(connectorDef,
-                        SemanticErrors.UNDEFINED_NATIVE_ACTION, action.getName(), connectorDef.getName());
-                return;
-            }
 
             action.setNativeAction((NativeUnitProxy) nativeAction);
         }
@@ -3218,10 +2561,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
     private void defineServices(Service[] services) {
         for (Service service : services) {
 
-            // Define Service Symbol in the package scope..
-            if (currentScope.resolve(service.getSymbolName()) != null) {
-                BLangExceptionHelper.throwSemanticError(service, SemanticErrors.REDECLARED_SYMBOL, service.getName());
-            }
             currentScope.define(service.getSymbolName(), service);
 
             // Define resources
@@ -3249,9 +2588,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
         SymbolName symbolName = new SymbolName("");
         resource.setSymbolName(symbolName);
 
-        if (currentScope.resolve(symbolName) != null) {
-            BLangExceptionHelper.throwSemanticError(resource, SemanticErrors.REDECLARED_SYMBOL, resource.getName());
-        }
         currentScope.define(symbolName, resource);
     }
 
@@ -3259,12 +2595,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
         for (StructDef structDef : structDefs) {
 
             SymbolName symbolName = new SymbolName(structDef.getName(), structDef.getPackagePath());
-            // Check whether this constant is already defined.
-            if (currentScope.resolve(symbolName) != null) {
-                BLangExceptionHelper.throwSemanticError(structDef,
-                        SemanticErrors.REDECLARED_SYMBOL, structDef.getName());
-            }
-
             currentScope.define(symbolName, structDef);
 
             // Create the '<init>' function and inject it to the struct
@@ -3312,12 +2642,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
     private void defineAnnotations(AnnotationDef[] annotationDefs) {
         for (AnnotationDef annotationDef : annotationDefs) {
             SymbolName symbolName = new SymbolName(annotationDef.getName(), currentPkg);
-
-            // Check whether this annotation is already defined.
-            if (currentScope.resolve(symbolName) != null) {
-                BLangExceptionHelper.throwSemanticError(annotationDef,
-                        SemanticErrors.REDECLARED_SYMBOL, annotationDef.getSymbolName().getName());
-            }
 
             currentScope.define(symbolName, annotationDef);
         }
@@ -3390,17 +2714,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
                 BType fieldType = BTypes.resolveType(fieldDef.getTypeName(), currentScope,
                         fieldDef.getNodeLocation());
                 fieldDef.setType(fieldType);
-            }
-        }
-    }
-
-    private void checkUnreachableStmt(Statement[] stmts, int stmtIndex) {
-        if (stmts.length > stmtIndex) {
-            //skip comment statement.
-            if (stmts[stmtIndex] instanceof CommentStmt) {
-                checkUnreachableStmt(stmts, ++stmtIndex);
-            } else {
-                BLangExceptionHelper.throwSemanticError(stmts[stmtIndex], SemanticErrors.UNREACHABLE_STATEMENT);
             }
         }
     }
@@ -3482,10 +2795,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
                     TypeCastExpression newExpr = checkWideningPossible(BTypes.typeAny, valueExpr);
                     if (newExpr != null) {
                         keyValueExpr.setValueExpr(newExpr);
-                    } else {
-                        BLangExceptionHelper.throwSemanticError(keyValueExpr,
-                                SemanticErrors.INCOMPATIBLE_TYPES_CANNOT_CONVERT, valueExprType.getSymbolName(),
-                                inheritedType);
                     }
                 }
                 continue;
@@ -3496,10 +2805,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
                 TypeCastExpression typeCastExpr = checkWideningPossible(BTypes.typeJSON, valueExpr);
                 if (typeCastExpr != null) {
                     keyValueExpr.setValueExpr(typeCastExpr);
-                } else {
-                    BLangExceptionHelper.throwSemanticError(keyValueExpr,
-                            SemanticErrors.INCOMPATIBLE_TYPES_CANNOT_CONVERT, valueExprType.getSymbolName(),
-                            inheritedType.getSymbolName());
                 }
                 continue;
             }
@@ -3509,10 +2814,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
             }
 
             TypeCastExpression typeCastExpr = checkWideningPossible(BTypes.typeJSON, valueExpr);
-            if (typeCastExpr == null) {
-                BLangExceptionHelper.throwSemanticError(initExpr, SemanticErrors.INCOMPATIBLE_TYPES_CANNOT_CONVERT,
-                        valueExpr.getType(), BTypes.typeJSON);
-            }
             keyValueExpr.setValueExpr(typeCastExpr);
         }
 
@@ -3589,56 +2890,6 @@ public class CompletionItemAccumulator implements NodeVisitor {
         return !BTypes.isValueType(targetType) && sourceType == BTypes.typeAny;
     }
 
-    private AssignabilityResult performAssignabilityCheck(BType lhsType, Expression rhsExpr) {
-        AssignabilityResult assignabilityResult = new AssignabilityResult();
-        BType rhsType = rhsExpr.getType();
-        if (lhsType == rhsType) {
-            assignabilityResult.assignable = true;
-            return assignabilityResult;
-        }
-
-        if (rhsType == BTypes.typeNull && !BTypes.isValueType(lhsType)) {
-            assignabilityResult.assignable = true;
-            return assignabilityResult;
-        }
-
-        // Now check whether an implicit cast is available;
-        TypeCastExpression implicitCastExpr = checkWideningPossible(lhsType, rhsExpr);
-        if (implicitCastExpr != null) {
-            assignabilityResult.assignable = true;
-            assignabilityResult.implicitCastExpr = implicitCastExpr;
-            return assignabilityResult;
-        }
-
-        // Now check whether left-hand side type is 'any', then an implicit cast is possible;
-        if (isImplicitiCastPossible(lhsType, rhsType)) {
-            implicitCastExpr = new TypeCastExpression(rhsExpr.getNodeLocation(),
-                    null, rhsExpr, lhsType);
-            implicitCastExpr.setOpcode(InstructionCodes.NOP);
-
-            assignabilityResult.assignable = true;
-            assignabilityResult.implicitCastExpr = implicitCastExpr;
-            return assignabilityResult;
-        }
-
-        // Further check whether types are assignable recursively, specially array types
-
-        return assignabilityResult;
-    }
-
-    private boolean isImplicitiCastPossible(BType lhsType, BType rhsType) {
-        if (lhsType == BTypes.typeAny) {
-            return true;
-        }
-
-        // 2) Check whether both types are array types
-        if (lhsType.getTag() == TypeTags.ARRAY_TAG || rhsType.getTag() == TypeTags.ARRAY_TAG) {
-            return isImplicitArrayCastPossible(lhsType, rhsType);
-        }
-
-        return false;
-    }
-
     private boolean isImplicitArrayCastPossible(BType lhsType, BType rhsType) {
         if (lhsType.getTag() == TypeTags.ARRAY_TAG && rhsType.getTag() == TypeTags.ARRAY_TAG) {
             // Both types are array types
@@ -3694,28 +2945,12 @@ public class CompletionItemAccumulator implements NodeVisitor {
         }
     }
 
-    private void checkAndAddReplyStmt(BlockStmt blockStmt) {
-        Statement[] statements = blockStmt.getStatements();
-        int length = statements.length;
-        Statement lastStatement = statements[length - 1];
-        if (!(lastStatement instanceof ReplyStmt)) {
-            NodeLocation location = lastStatement.getNodeLocation();
-            ReplyStmt replyStmt = new ReplyStmt(
-                    new NodeLocation(location.getFileName(), location.getLineNumber() + 1), null, null);
-            statements = Arrays.copyOf(statements, length + 1);
-            statements[length] = replyStmt;
-            blockStmt.setStatements(statements);
-        }
-    }
-
     /**
      * This class holds the results of the type assignability check.
      *
      * @since 0.88
      */
     static class AssignabilityResult {
-        boolean assignable;
-        TypeCastExpression implicitCastExpr;
     }
 
     @Override

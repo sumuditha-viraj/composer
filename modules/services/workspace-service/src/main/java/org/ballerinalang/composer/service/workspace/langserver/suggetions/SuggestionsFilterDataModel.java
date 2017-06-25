@@ -39,6 +39,13 @@ public class SuggestionsFilterDataModel {
 
     /**
      * Constructor for SuggestionsFilterDataModel
+     */
+    public SuggestionsFilterDataModel(){
+
+    }
+
+    /**
+     * Constructor for SuggestionsFilterDataModel
      * @param parser - parser instance
      */
     public SuggestionsFilterDataModel(Parser parser, ParserRuleContext context, List<PossibleToken> posibleTokenList) {

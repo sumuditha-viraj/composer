@@ -41,8 +41,10 @@ public class CapturePossibleTokenStrategy extends DefaultErrorStrategy {
     private SuggestionsFilterDataModel suggestionsFilterDataModel;
 
     public CapturePossibleTokenStrategy(Position cursorPosition) {
-            this.cursorPosition = cursorPosition;
-            possibleTokens = new LinkedList<>();
+        this.cursorPosition = cursorPosition;
+        possibleTokens = new LinkedList<>();
+
+        this.setSuggestionsFilterDataModel(new SuggestionsFilterDataModel());
     }
     @Override
     public void reportInputMismatch(Parser parser, InputMismatchException e) {
