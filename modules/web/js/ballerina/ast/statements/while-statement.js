@@ -44,6 +44,14 @@ class WhileStatement extends ConditionalStatement {
             this.setCondition(this.getFactory().createBasicLiteralExpression(opts));
         }
         this._statements = _.get(args, 'statements', []);
+        this.whiteSpace.defaultDescriptor.regions = {
+            0: '',
+            1: ' ',
+            2: '',
+            3: ' ',
+            4: '\n',
+            5: '\n'
+        };
     }
 
     /**
@@ -66,7 +74,7 @@ class WhileStatement extends ConditionalStatement {
             const condition = this.getFactory().createFromJson(parsedJson);
             condition.initFromJson(parsedJson);
             this.setCondition(condition);
-            condition.setParent(this);
+            condition.setParent(this, {doSilently: true});
         }
     }
 
@@ -101,7 +109,7 @@ class WhileStatement extends ConditionalStatement {
             const condition = self.getFactory().createFromJson(jsonNode.condition);
             condition.initFromJson(jsonNode.condition);
             self.setCondition(condition, { doSilently: true });
-            condition.setParent(this);
+            condition.setParent(this, {doSilently: true});
         }
         _.each(jsonNode.children, (childNode) => {
             let child;

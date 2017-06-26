@@ -17,6 +17,7 @@
  */
 
 import UndoableOperation from './undoable-operation';
+import SwitchToSourceViewConfirmDialog from './../../dialog/switch-to-source-confirm-dialog';
 
 /**
  * Class to represent an undoable source modify operation
@@ -31,23 +32,51 @@ class SourceModifyOperation extends UndoableOperation {
     }
 
     undo() {
-        if (this.canUndo()) {
-            this.getEditor().getSourceView().undo();
+        let file = this.getEditor().getFile(),
+            sourceView = this.getEditor().getSourceView();
+        sourceView.undo();
+        file.setContent(sourceView.getContent())
+            .setDirty(true)
+            .save();
+    }
+
+    prepareUndo(next) {
+        if (!this.getEditor().isInSourceView()) {
+            SwitchToSourceViewConfirmDialog.askConfirmation('undo', (continueUndo) => {
+                if (continueUndo) {
+                    this.getEditor().activateSourceView();
+                    next(true);
+                } else {
+                    next(false);
+                }
+            });
+        } else {
+            next(true);
         }
     }
 
     redo() {
-        if (this.canRedo()) {
-            this.getEditor().getSourceView().redo();
+        let file = this.getEditor().getFile(),
+            sourceView = this.getEditor().getSourceView();
+        sourceView.redo();
+        file.setContent(sourceView.getContent())
+            .setDirty(true)
+            .save();
+    }
+
+    prepareRedo(next) {
+        if (!this.getEditor().isInSourceView()) {
+            SwitchToSourceViewConfirmDialog.askConfirmation('redo', (continueRedo) => {
+                if (continueRedo) {
+                    this.getEditor().activateSourceView();
+                    next(true);
+                } else {
+                    next(false);
+                }
+            });
+        } else {
+            next(true);
         }
-    }
-
-    canUndo() {
-        return this.getEditor().isInSourceView();
-    }
-
-    canRedo() {
-        return this.getEditor().isInSourceView();
     }
 }
 

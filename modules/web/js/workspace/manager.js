@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2016, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+ * Copyright (c) 2016-2017, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
  *
  * WSO2 Inc. licenses this file to you under the Apache License,
  * Version 2.0 (the "License"); you may not use this file except
@@ -18,6 +18,7 @@
 import $ from 'jquery';
 import _ from 'lodash';
 import log from 'log';
+import 'bootstrap';
 import SaveFileDialog from 'dialog/save-to-file-dialog';
 import SettingsDialog from 'dialog/settings-dialog';
 import FolderOpenDialog from 'dialog/folder-open-dialog';
@@ -26,12 +27,12 @@ import CloseConfirmDialog from 'dialog/close-confirm-dialog';
 import ReplaceConfirmDialog from 'dialog/replace-confirm-dialog';
 import NewItemDialog from 'dialog/new-item-dialog';
 import DeleteItemDialog from 'dialog/delete-item-dialog';
+import SwaggerImportDialog from 'dialog/swagger-import-dialog';
 import WelcomePage from 'welcome-page/first-launch-welcome';
 import Tab from 'tab/tab';
 import FileTab from 'tab/file-tab';
 import alerts from 'alerts';
 import ServiceClient from './service-client';
-import 'bootstrap';
 
 // workspace manager constructor
 /**
@@ -39,6 +40,12 @@ import 'bootstrap';
  */
 class WorkspaceManager {
 
+    /**
+     * Creates an instance of WorkspaceManager.
+     * @param {Object} application The application for the composer.
+     * @param {Object} application.commandManager The command manager of the application.
+     * @memberof WorkspaceManager
+     */
     constructor(application) {
         this.app = application;
         this._serviceClient = new ServiceClient({ application: this.app });
@@ -69,9 +76,11 @@ class WorkspaceManager {
 
         this.app.commandManager.registerHandler('show-folder-open-dialog', this.showFolderOpenDialog, this);
 
-        this.app.commandManager.registerHandler('open-close-file-confirm-dialog', this.openCloseFileConfirmDialog, this);
+        this.app.commandManager.registerHandler('open-close-file-confirm-dialog', this.openCloseFileConfirmDialog,
+                                                                                                                this);
 
-        this.app.commandManager.registerHandler('open-replace-file-confirm-dialog', this.openReplaceFileConfirmDialog, this);
+        this.app.commandManager.registerHandler('open-replace-file-confirm-dialog', this.openReplaceFileConfirmDialog,
+                                                                                                                this);
 
         // Go to Welcome Page.
         this.app.commandManager.registerHandler('go-to-welcome-page', this.goToWelcomePage);
@@ -84,8 +93,17 @@ class WorkspaceManager {
 
         // Go to User Guide.
         this.app.commandManager.registerHandler('go-to-user-guide', this.showUserGuide, this);
+
+        // Import a swagger definition.
+        this.app.commandManager.registerHandler('import-swagger-def', this.importSwaggerDefinition, this);
     }
 
+    /**
+     * Gets the service client.
+     *
+     * @returns {ServiceClient} The client.
+     * @memberof WorkspaceManager
+     */
     getServiceClient() {
         return this._serviceClient;
     }
@@ -219,7 +237,7 @@ class WorkspaceManager {
     openSettingsDialog() {
         /* var settingsModal = $(_.get(app, 'config.settings_dialog.selector'));
         settingsModal.modal('show');*/
-        if (_.isNil(this._openFileDialog)) {
+        if (_.isNil(this._openSettingsDialog)) {
             const opts = _.cloneDeep(_.get(this.app.config, 'settings_dialog'));
             _.set(opts, 'application', this.app);
             this._openSettingsDialog = new SettingsDialog(opts);
@@ -300,25 +318,22 @@ class WorkspaceManager {
         const redoMenuItem = this.app.menuBar.getMenuItemByID('edit.redo');
 
         if (activeTab instanceof FileTab) {
-            const fileEditor = activeTab.getBallerinaFileEditor();
-            if (!_.isUndefined(fileEditor)) {
-                const undoManager = activeTab.getBallerinaFileEditor().getUndoManager();
-                if (undoManager.hasUndo() && undoManager.undoStackTop().canUndo()) {
-                    undoMenuItem.enable();
-                    // undoMenuItem.addLabelSuffix(
-                    //     undoManager.undoStackTop().getTitle());
-                } else {
-                    undoMenuItem.disable();
-                    undoMenuItem.clearLabelSuffix();
-                }
-                if (undoManager.hasRedo() && undoManager.redoStackTop().canRedo()) {
-                    redoMenuItem.enable();
-                    // redoMenuItem.addLabelSuffix(
-                    //     undoManager.redoStackTop().getTitle());
-                } else {
-                    redoMenuItem.disable();
-                    redoMenuItem.clearLabelSuffix();
-                }
+            const undoManager = activeTab.getUndoManager();
+            if (undoManager.hasUndo()) {
+                undoMenuItem.enable();
+                undoMenuItem.addLabelSuffix(
+                    undoManager.undoStackTop().getTitle());
+            } else {
+                undoMenuItem.disable();
+                undoMenuItem.clearLabelSuffix();
+            }
+            if (undoManager.hasRedo()) {
+                redoMenuItem.enable();
+                redoMenuItem.addLabelSuffix(
+                    undoManager.redoStackTop().getTitle());
+            } else {
+                redoMenuItem.disable();
+                redoMenuItem.clearLabelSuffix();
             }
         } else {
             undoMenuItem.disable();
@@ -369,7 +384,7 @@ class WorkspaceManager {
 
     handleUndo() {
         // undo manager for current tab
-        const undoManager = this.app.tabController.getActiveTab().getBallerinaFileEditor().getUndoManager();
+        const undoManager = this.app.tabController.getActiveTab().getUndoManager();
         if (undoManager.hasUndo()) {
             undoManager.undo();
         }
@@ -378,7 +393,7 @@ class WorkspaceManager {
 
     handleRedo() {
         // undo manager for current tab
-        const undoManager = this.app.tabController.getActiveTab().getBallerinaFileEditor().getUndoManager();
+        const undoManager = this.app.tabController.getActiveTab().getUndoManager();
         if (undoManager.hasRedo()) {
             undoManager.redo();
         }
@@ -438,6 +453,19 @@ class WorkspaceManager {
             this._deleteItemWizard.render();
         }
         this._deleteItemWizard.displayWizard(data);
+    }
+
+    /**
+     * On click event which open the swagger import modal/dialog.
+     *
+     * @memberof WorkspaceManager
+     */
+    importSwaggerDefinition() {
+        if (_.isNil(this._openSwaggerImportDialog)) {
+            this._openSwaggerImportDialog = new SwaggerImportDialog(this.app);
+        }
+        this._openSwaggerImportDialog.render();
+        this._openSwaggerImportDialog.show();
     }
 }
 

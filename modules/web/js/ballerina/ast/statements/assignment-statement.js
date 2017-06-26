@@ -65,8 +65,8 @@ class AssignmentStatement extends Statement {
                 ? this.getChildren()[0].getExpressionString() : '')
                 // default tailing whitespace of expressions is emtpy - hence we need to
                 // append a sapce here
-                + ((!_.isNil(this.getChildren()[0])
-                      && this.getChildren()[0].whiteSpace.useDefault) ? ' ' : '')) + '=' +
+                + ((!_.isNil(this.getChildren()[0]) && !_.isEmpty(this.getChildren()[0].children)
+                      && _.last(this.getChildren()[0].children).whiteSpace.useDefault) ? ' ' : '')) + '=' +
             (!_.isNil(this.getChildren()[1])
                 // we are getting following whitespace of = from assignment statement
                 ? this.getWSRegion(2) + this.getChildren()[1].getExpressionString() : '');
@@ -130,7 +130,7 @@ class AssignmentStatement extends Statement {
             nodeToFireEvent.trigger('tree-modified', {
                 origin: nodeToFireEvent,
                 type: 'custom',
-                title: 'Assignment statement Custom Tree modified',
+                title: 'Modify Assignment Statement',
                 context: nodeToFireEvent,
             });
         } else {
