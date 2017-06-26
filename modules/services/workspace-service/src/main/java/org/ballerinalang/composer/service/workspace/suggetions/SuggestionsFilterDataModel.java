@@ -40,9 +40,9 @@ public class SuggestionsFilterDataModel {
 
     /**
      * Constructor for SuggestionsFilterDataModel
-     +     */
+     */
     public SuggestionsFilterDataModel(){
-        
+
     }
 
     /**
