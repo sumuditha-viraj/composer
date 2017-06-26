@@ -185,7 +185,7 @@ const createReplyStatementTool = {
     name: 'Reply',
     cssClass: 'icon fw fw-reply',
     title: 'Reply',
-    nodeFactoryMethod: BallerinaASTFactory.createReplyStatement,
+    nodeFactoryMethod: DefaultBallerinaASTFactory.createReplyStatement,
 };
 
 const createReturnStatementTool = {
@@ -245,17 +245,12 @@ const statementToolDefArray = [createIfStatementTool, createAssignmentExpression
 
 const seperator = {
     id: 'constructs_seperator',
+    name: '',
     seperator: true,
 };
 
 // creating a one gourp for constructs
 const constructsToolDefArray = _.union(mainToolDefArray, [seperator], statementToolDefArray);
-
-constructsToolDefArray.forEach((tool) => {
-    const icon = document.createElement('img');
-    icon.setAttribute('src', tool.iconSrc);
-    tool.icon = icon;
-});
 
 const constructs = new ToolGroup({
     toolGroupName: 'Constructs',
