@@ -31,22 +31,22 @@ import java.util.List;
  *
  */
 public class BallerinaComposerErrorStrategy extends DefaultErrorStrategy {
-    
+
     public static final String EOF = "'<EOF>'";
-    
+
     public List<SyntaxError> getErrorTokens() {
         return errorTokens;
     }
-    
+
     public void setErrorTokens(List<SyntaxError> errorTokens) {
         this.errorTokens = errorTokens;
     }
-    
+
     List<SyntaxError> errorTokens = new ArrayList<SyntaxError>();
-    
+
     public BallerinaComposerErrorStrategy() {
     }
-    
+
     @Override
     public void reportInputMismatch(Parser parser, InputMismatchException e) {
         Token missingSymbol = getMissingSymbol(parser);
@@ -54,14 +54,13 @@ public class BallerinaComposerErrorStrategy extends DefaultErrorStrategy {
         int position = missingSymbol.getCharPositionInLine();
         String mismatchedToken = getTokenErrorDisplay(e.getOffendingToken());
         String expectedToken = e.getExpectedTokens().toString(parser.getVocabulary());
-        String msg = getSourceLocation(parser, line, position) + "mismatched input " + mismatchedToken + ". Expecting" +
-                     " one of " + expectedToken;
+        String msg = "mismatched input " + mismatchedToken + ". Expecting" + " one of " + expectedToken;
         // FixMe: This need to be handled by grammar itself
         if (!EOF.equals(mismatchedToken)) {
             errorTokens.add(createError(line, position, msg));
         }
     }
-    
+
     @Override
     public void reportMissingToken(Parser parser) {
         Token token = parser.getCurrentToken();
@@ -70,40 +69,34 @@ public class BallerinaComposerErrorStrategy extends DefaultErrorStrategy {
         int line = missingSymbol.getLine();
         int position = getMissingSymbol(parser).getCharPositionInLine();
         String missingToken = expecting.toString(parser.getVocabulary());
-        String msg = getSourceLocation(parser, line, position) + "missing " + missingToken + " before " +
-                     getTokenErrorDisplay(token);
+        String msg = "missing " + missingToken + " before " + getTokenErrorDisplay(token);
         errorTokens.add(createError(line, position, msg));
     }
-    
+
     @Override
     public void reportNoViableAlternative(Parser parser, NoViableAltException e) {
         Token token = parser.getCurrentToken();
         int line = getMissingSymbol(parser).getLine();
         int position = getMissingSymbol(parser).getCharPositionInLine();
-        String msg = getSourceLocation(parser, line, position) + "invalid identifier " + getTokenErrorDisplay(token);
+        String msg = "invalid identifier " + getTokenErrorDisplay(token);
         if (!EOF.equals(getTokenErrorDisplay(token))) {
             errorTokens.add(createError(line, position, msg));
         }
     }
-    
+
     @Override
     public void reportUnwantedToken(Parser parser) {
         Token token = parser.getCurrentToken();
         int line = getMissingSymbol(parser).getLine();
         int position = getMissingSymbol(parser).getCharPositionInLine();
-        String msg = getSourceLocation(parser, line, position) + "unwanted token " + getTokenErrorDisplay(token);
+        String msg = "unwanted token " + getTokenErrorDisplay(token);
         if (!EOF.equals(getTokenErrorDisplay(token))) {
             errorTokens.add(createError(line, position, msg));
         }
     }
-    
-    
-    private String getSourceLocation(Parser parser, int line, int position) {
-        return parser.getSourceName() + ":" + line + ":" + position + ": ";
-    }
-    
+
     private SyntaxError createError(int line, int position, String message) {
         return new SyntaxError(line, position, message);
     }
-    
+
 }

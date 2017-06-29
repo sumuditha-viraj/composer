@@ -104,12 +104,15 @@ class ConnectorDefinition extends ASTNode {
      * @return {string} - Arguments as string.
      */
     getArgumentsAsString() {
-        const argsStringArray = [];
-        const args = this.getArguments();
-        _.forEach(args, (arg) => {
-            argsStringArray.push(arg.getParameterDefinitionAsString());
+        let argsString = '';
+        this.getArguments().forEach((arg, index) => {
+            if (index != 0 ) {
+                argsString += ',';
+            }
+            argsString += (arg.whiteSpace.useDefault && index !== 0 ? ' ' : arg.getWSRegion(0))
+            argsString += arg.getParameterDefinitionAsString();
         });
-        return _.join(argsStringArray, ', ');
+        return argsString;
     }
 
 
@@ -234,6 +237,31 @@ class ConnectorDefinition extends ASTNode {
 
             this.addChild(newVariableDefinitionStatement, index + 1);
         }
+    }
+
+    addVariableDefinitionFromString(variableDefString) {
+        if(!variableDefString){
+            return;
+        }
+
+        const varDefStatement = this.getFactory().createVariableDefinitionStatement();
+        varDefStatement.setStatementFromString(variableDefString, ({isValid, response}) => {
+            if(!isValid) {
+                return;
+            }
+            // Get the index of the last variable definition statement.
+            let index = _.findLastIndex(this.getChildren(), (child) => {
+                return this.getFactory().isVariableDefinitionStatement(child);
+            });
+
+            if (index === -1) {
+                index = _.findLastIndex(this.getChildren(), child => {
+                    return this.getFactory().isConnectorDeclaration(child);
+                });
+            }
+
+            this.addChild(varDefStatement, index + 1);
+        });
     }
 
     /**
