@@ -49,18 +49,34 @@ import org.ballerinalang.composer.service.workspace.rest.datamodel.BFile;
 import org.ballerinalang.composer.service.workspace.suggetions.AutoCompleteSuggester;
 import org.ballerinalang.composer.service.workspace.suggetions.AutoCompleteSuggesterImpl;
 import org.ballerinalang.composer.service.workspace.suggetions.CapturePossibleTokenStrategy;
+import org.ballerinalang.composer.service.workspace.suggetions.ComposerProgramDirRepository;
+import org.ballerinalang.composer.service.workspace.suggetions.ComposerSemanticAnalyzer;
 import org.ballerinalang.composer.service.workspace.suggetions.SuggestionsFilter;
 import org.ballerinalang.composer.service.workspace.suggetions.SuggestionsFilterDataModel;
 import org.ballerinalang.composer.service.workspace.util.WorkspaceUtils;
+import org.ballerinalang.model.BLangPackage;
 import org.ballerinalang.model.BLangProgram;
 import org.ballerinalang.model.BallerinaFile;
+import org.ballerinalang.model.GlobalScope;
+import org.ballerinalang.model.NativeScope;
+import org.ballerinalang.model.SymbolName;
+import org.ballerinalang.model.SymbolScope;
+import org.ballerinalang.natives.BuiltInNativeConstructLoader;
 import org.ballerinalang.util.exceptions.BallerinaException;
+import org.ballerinalang.util.program.BLangPackages;
 import org.ballerinalang.util.program.BLangPrograms;
+import org.ballerinalang.util.repository.BuiltinPackageRepository;
+import org.ballerinalang.util.repository.PackageRepository;
+import org.ballerinalang.util.repository.ProgramDirRepository;
+import org.ballerinalang.util.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -509,32 +525,47 @@ public class LangServerManager {
                     TextDocumentPositionParams.class);
             String textContent = textDocumentPositionParams.getText();
             Position position = textDocumentPositionParams.getPosition();
-            ArrayList<CompletionItem> completionItems = new ArrayList<>();
+            ArrayList completionItems = new ArrayList<>();
 
             BFile bFile = new BFile();
             bFile.setContent(textContent);
-            bFile.setFilePath("/temp");
+            bFile.setFilePath("~/temp");
             bFile.setFileName("temp.bal");
             bFile.setPackageName(".");
 
             AutoCompleteSuggester autoCompleteSuggester = new AutoCompleteSuggesterImpl();
             CapturePossibleTokenStrategy capturePossibleTokenStrategy = new CapturePossibleTokenStrategy(position);
             try {
-                ArrayList symbols = new ArrayList<>();
-                CompletionItemAccumulator completionItemAccumulator = new CompletionItemAccumulator(symbols, position);
+                //CompletionItemAccumulator completionItemAccumulator =
+                // new CompletionItemAccumulator(symbols, position);
                 BallerinaFile ballerinaFile =
                         autoCompleteSuggester.getBallerinaFile(bFile, position, capturePossibleTokenStrategy);
+
+
+                // Get the global scope
+                GlobalScope globalScope = BLangPrograms.populateGlobalScope();
+                NativeScope nativeScope = BLangPrograms.populateNativeScope();
+                SymbolScope closestScope = getClosestScope(bFile, position, globalScope, nativeScope);
+
+                if (closestScope != null) {
+                    getSymbolMap(closestScope, completionItems);
+                } else {
+                    getSymbolMap(globalScope, completionItems);
+                }
+                getSymbolMap(nativeScope, completionItems);
+
+
                 capturePossibleTokenStrategy.getSuggestionsFilterDataModel().setBallerinaFile(ballerinaFile);
-                ballerinaFile.accept(completionItemAccumulator);
+                //ballerinaFile.accept(completionItemAccumulator);
 
                 SuggestionsFilter suggestionsFilter = new SuggestionsFilter();
                 SuggestionsFilterDataModel dm = capturePossibleTokenStrategy.getSuggestionsFilterDataModel();
-                dm.setClosestScope(completionItemAccumulator.getClosestScope());
+                dm.setClosestScope(closestScope);
                 // set all the packages associated with the runtime. "this.getPackages()" might return null as process
                 // of loading packages is running in a separate thread. See initBackgroundJobs() method.
                 dm.setPackages(this.getPackages());
 
-                completionItems = suggestionsFilter.getCompletionItems(dm, symbols);
+                completionItems = suggestionsFilter.getCompletionItems(dm, completionItems);
             } catch (IOException e) {
                 this.sendErrorResponse(LangServerConstants.INTERNAL_ERROR_LINE,
                         LangServerConstants.INTERNAL_ERROR, message, null);
@@ -675,6 +706,70 @@ public class LangServerManager {
             return;
         }
     }
+
+
+    public SymbolScope getClosestScope(BFile bFile, Position cursorPosition, GlobalScope globalScope,
+                                       NativeScope nativeScope) {
+
+        Path packagePath = new File(bFile.getFileName()).toPath();
+
+        ByteArrayInputStream inputStream = new ByteArrayInputStream(bFile.getContent()
+                .getBytes(StandardCharsets.UTF_8));
+
+        // Create program repository
+        ProgramDirRepository programDirRepo = initProgramDirRepository(inputStream);
+
+        // Creates program scope for this Ballerina program
+        BLangProgram bLangProgram = new BLangProgram(globalScope, nativeScope);
+        bLangProgram.setProgramFilePath(packagePath);
+
+        // Load entry package
+        BLangPackage entryPackage = BLangPackages.loadEntryPackage(packagePath, bLangProgram, programDirRepo);
+        bLangProgram.setEntryPackage(entryPackage);
+        bLangProgram.define(new SymbolName(entryPackage.getPackagePath()), entryPackage);
+
+        // Analyze the semantic properties of the Ballerina program
+        ComposerSemanticAnalyzer semanticAnalyzer = new ComposerSemanticAnalyzer(bLangProgram, cursorPosition);
+        bLangProgram.accept(semanticAnalyzer);
+
+        return semanticAnalyzer.getClosestScope();
+
+    }
+
+
+    public ProgramDirRepository initProgramDirRepository(InputStream inputStream) {
+        PackageRepository systemRepo = null;
+        PackageRepository[] extRepos;
+        List<PackageRepository> extRepoList = new ArrayList<>();
+        BuiltinPackageRepository[] builtinPackageRepos = BuiltInNativeConstructLoader.loadPackageRepositories();
+        for (BuiltinPackageRepository builtinPackageRepo : builtinPackageRepos) {
+            if (builtinPackageRepo.isSystemRepo()) {
+                systemRepo = builtinPackageRepo;
+            } else {
+                extRepoList.add(builtinPackageRepo);
+            }
+        }
+
+        extRepos = extRepoList.toArray(new PackageRepository[0]);
+        UserRepository userRepository = BLangPrograms.initUserRepository(systemRepo, extRepos);
+        return new ComposerProgramDirRepository(inputStream, systemRepo, extRepos, userRepository);
+    }
+
+    private void getSymbolMap(SymbolScope symbolScope, List symbols) {
+        if (symbolScope != null) {
+            symbolScope.getSymbolMap().forEach((k, v) -> {
+                SymbolInfo symbolInfo = new SymbolInfo(k.getName(), v);
+                symbols.add(symbolInfo);
+            });
+            SymbolScope enclosingScope = symbolScope.getEnclosingScope();
+            if (enclosingScope != null) {
+                getSymbolMap(enclosingScope, symbols);
+            } else {
+                return;
+            }
+        }
+    }
+
 
     // End Notification Handlers
 
