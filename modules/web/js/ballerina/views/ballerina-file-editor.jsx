@@ -22,6 +22,7 @@ import PropTypes from 'prop-types';
 import { Scrollbars } from 'react-custom-scrollbars';
 import CSSTransitionGroup from 'react-transition-group/CSSTransitionGroup';
 import DebugManager from 'plugins/debugger/DebugManager/DebugManager'; // FIXME: Importing from debugger plugin
+import TreeUtil from 'js/ballerina/model/tree-util.js';
 import DesignView from './design-view.jsx';
 import SourceView from './source-view.jsx';
 import SwaggerView from './swagger-view.jsx';
@@ -419,8 +420,8 @@ class BallerinaFileEditor extends React.Component {
             const { position, type } = node;
             // If node has position info
             if (position) {
-                const { startLine, startOffset } = position;
-                this.jumpToSourcePosition(startLine - 1, startOffset);
+                const { startLine, startColumn } = position;
+                this.jumpToSourcePosition(startLine - 1, startColumn - 1);
             } else {
                 log.error(`Unable to find location info from ${type} node.`);
             }
@@ -637,15 +638,13 @@ class BallerinaFileEditor extends React.Component {
             DebugManager.addBreakPoint(lineNumber, fileName, packagePath);
         });
     }
-    getPackageName(ast) {
-        const packageDeclaration = ast.filterTopLevelNodes({ kind: 'PackageDeclaration' });
-        packageDeclaration[0] = packageDeclaration[0] || { packageName: [{}] };
-        if (!packageDeclaration[0]
-            || !packageDeclaration[0].packageName
-            || !packageDeclaration[0].packageName.length) {
-            return '.';
-        }
-        return packageDeclaration[0].packageName[0].value;
+
+    /**
+     * @description Get package name from astRoot
+     * @returns string - Package name
+     */
+    getPackageName(astRoot) {
+        return TreeUtil.getPackageNameString(astRoot);
     }
 
     /**

@@ -275,8 +275,9 @@ class TreeUtil extends AbstractTreeUtil {
         if (!parent) {
             return [];
         }
+        const blockScope = this.isBlock(parent) ? parent : parent.body;
         let filteredItems = [];
-        const statements = parent.statements;
+        const statements = _.get(blockScope, 'statements');
         if (statements) {
             filteredItems = _.filter(statements, (stmt) => {
                 return this.isConnectorDeclaration(stmt);
@@ -473,6 +474,24 @@ class TreeUtil extends AbstractTreeUtil {
                 return varNames;
             });
     }
+
+    /**
+     * @description Get package name from astRoot
+     * @param {ASTModel} astRoot
+     * @returns
+     * @memberof TreeUtil
+     */
+    getPackageNameString(astRoot) {
+        if (!astRoot) {
+            return '.';
+        }
+        const packageDeclaration = astRoot.filterTopLevelNodes({ kind: 'PackageDeclaration' });
+        if (!packageDeclaration || !packageDeclaration[0]) {
+            return '.';
+        }
+        return packageDeclaration[0].getPackageNameString();
+    }
+
 }
 
 export default new TreeUtil();
